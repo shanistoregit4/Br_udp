@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import time
 from typing import Dict, List, Any, Optional
 from aiohttp import web
@@ -10,6 +11,7 @@ from aiohttp import web
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ACCOUNTS_FILE = os.path.join(BASE_DIR, "accounts.json")
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates", "index.html")
+BATCH_SETTINGS_FILE = os.path.join(BASE_DIR, "batch_settings.json")
 
 class BotState:
     def __init__(self):
@@ -23,6 +25,11 @@ class BotState:
         self.refresh_callbacks: Dict[str, Any] = {}
         self.account_credentials: Dict[str, Dict[str, Any]] = {}  # keyed by in-game account ID
         self.match_tasks: Dict[str, set] = {}  # keyed by in-game account ID
+        # Bulk/batch scheduler state (keyed by login UID)
+        self.batch_queue: List[str] = []
+        self.batch_active: set = set()
+        self.batch_results: Dict[str, str] = {}
+        self.batch_settings: Dict[str, Any] = {"concurrency": 10, "search_timeout_min": 5}
 
     def log(self, message: str, level: str = "info", uid: Optional[str] = None):
         self.logs.append({"time": time.strftime("%H:%M:%S"), "level": level, "message": message, "uid": uid})
@@ -33,7 +40,7 @@ class BotState:
         if uid not in self.accounts:
             self.accounts[uid] = {"uid": uid, "nickname": nickname or f"Player_{uid[:6]}", "region": region or "ME",
                 "level": level or 1, "initial_exp": exp, "current_exp": exp, "gained_exp": 0, "likes": likes or 0,
-                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "max_parallel_matches": 0, "target_level": 0, "level_stop_requested": False, "last_match_time": None,
+                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "max_parallel_matches": 1, "target_level": 8, "level_stop_requested": False, "last_match_time": None,
                 "last_updated": time.strftime("%H:%M:%S")}
         else:
             a = self.accounts[uid]
@@ -94,6 +101,43 @@ def write_accounts(accounts):
     with open(tmp, "w", encoding="utf-8") as f: json.dump(accounts, f, indent=2)
     os.replace(tmp, ACCOUNTS_FILE)
 
+def set_batch_state(login_uid, state):
+    """Persist a bulk account's state (pending / active / done / skipped) into accounts.json."""
+    saved = read_accounts()
+    for account in saved:
+        if str(account.get("uid", "")) == str(login_uid):
+            account["batch_state"] = state
+            write_accounts(saved)
+            return
+
+def load_batch_settings():
+    try:
+        with open(BATCH_SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            bot_state.batch_settings["concurrency"] = max(1, int(data.get("concurrency", 10)))
+            bot_state.batch_settings["search_timeout_min"] = max(0, float(data.get("search_timeout_min", 5)))
+    except (OSError, ValueError, TypeError):
+        pass
+
+def save_batch_settings():
+    try:
+        with open(BATCH_SETTINGS_FILE, "w", encoding="utf-8") as f: json.dump(bot_state.batch_settings, f)
+    except OSError:
+        pass
+
+load_batch_settings()
+
+# Accepts one account per line or a whole paragraph: "UID:PASSWORD", "UID PASSWORD", "UID|PASSWORD", "UID,PASSWORD".
+BULK_ACCOUNT_RE = re.compile(r"(\d{4,})[\s:|,;]+(\S+)")
+
+def parse_bulk_accounts(text):
+    pairs, seen = [], set()
+    for uid, password in BULK_ACCOUNT_RE.findall(text or ""):
+        if uid in seen: continue
+        seen.add(uid); pairs.append((uid, password))
+    return pairs
+
 async def handle_index(request):
     try:
         with open(TEMPLATE_PATH, "r", encoding="utf-8") as f: content = f.read()
@@ -101,21 +145,28 @@ async def handle_index(request):
         content = "<h1>Dashboard template missing: templates/index.html</h1>"
     return web.Response(text=content, content_type="text/html", charset="utf-8")
 
+def batch_summary():
+    states = [str(a.get("batch_state", "")) for a in read_accounts() if a.get("batch")]
+    return {"pending": len(bot_state.batch_queue), "active": len(bot_state.batch_active),
+        "done": states.count("done"), "skipped": states.count("skipped"),
+        "concurrency": bot_state.batch_settings.get("concurrency", 10),
+        "search_timeout_min": bot_state.batch_settings.get("search_timeout_min", 5)}
+
 async def handle_stats(request):
     accounts = sorted(bot_state.accounts.values(), key=lambda a: a.get("gained_exp", 0), reverse=True)
     return web.json_response({"total_accounts": len(read_accounts()), "total_matches": bot_state.total_matches,
         "total_gained_exp": bot_state.total_gained_exp, "accounts": accounts, "logs": bot_state.logs[-60:],
-        "uptime": int(time.time() - bot_state.start_time)})
+        "uptime": int(time.time() - bot_state.start_time), "batch": batch_summary()})
 
 async def handle_add_account(request):
     try:
         data = await request.json()
         uid = str(data.get("uid", "")).strip()
         password = str(data.get("password", "")).strip()
-        try: max_parallel = max(0, int(data.get("max_parallel_matches", 0)))
-        except (TypeError, ValueError): max_parallel = 0
-        try: target_level = max(0, int(data.get("target_level", 0)))
-        except (TypeError, ValueError): target_level = 0
+        try: max_parallel = max(0, int(data.get("max_parallel_matches", 1)))
+        except (TypeError, ValueError): max_parallel = 1
+        try: target_level = max(0, int(data.get("target_level", 8)))
+        except (TypeError, ValueError): target_level = 8
         if not uid or not password:
             return web.json_response({"status":"error", "error":"UID and Password are required"}, status=400)
         accounts = read_accounts()
@@ -130,6 +181,51 @@ async def handle_add_account(request):
     except Exception as e:
         return web.json_response({"status":"error", "error":str(e)}, status=500)
 
+async def handle_bulk_add(request):
+    try:
+        data = await request.json()
+        pairs = parse_bulk_accounts(str(data.get("text", "")))
+        if not pairs:
+            return web.json_response({"status":"error", "error":"No UID/password pairs found in the pasted text"}, status=400)
+        try: max_parallel = max(0, int(data.get("max_parallel_matches", 1)))
+        except (TypeError, ValueError): max_parallel = 1
+        try: target_level = max(0, int(data.get("target_level", 8)))
+        except (TypeError, ValueError): target_level = 8
+        try: bot_state.batch_settings["concurrency"] = max(1, int(data.get("concurrency", bot_state.batch_settings["concurrency"])))
+        except (TypeError, ValueError): pass
+        try: bot_state.batch_settings["search_timeout_min"] = max(0, float(data.get("search_timeout_min", bot_state.batch_settings["search_timeout_min"])))
+        except (TypeError, ValueError): pass
+        save_batch_settings()
+        accounts = read_accounts()
+        existing = {str(a.get("uid", "")) for a in accounts}
+        added = duplicates = 0
+        for uid, password in pairs:
+            if uid in existing:
+                duplicates += 1; continue
+            accounts.append({"uid": uid, "password": password, "max_parallel_matches": max_parallel,
+                "target_level": target_level, "batch": True, "batch_state": "pending"})
+            existing.add(uid); bot_state.batch_queue.append(uid); added += 1
+        write_accounts(accounts)
+        bot_state.log(f"Bulk add: {added} account(s) queued, {duplicates} duplicate(s) skipped | {bot_state.batch_settings['concurrency']} at once", "success")
+        return web.json_response({"status":"ok", "added":added, "duplicates":duplicates})
+    except Exception as e:
+        return web.json_response({"status":"error", "error":str(e)}, status=500)
+
+async def handle_batch_settings(request):
+    try:
+        data = await request.json()
+        try: bot_state.batch_settings["concurrency"] = max(1, int(data.get("concurrency", bot_state.batch_settings["concurrency"])))
+        except (TypeError, ValueError):
+            return web.json_response({"status":"error", "error":"Accounts at once must be a whole number"}, status=400)
+        try: bot_state.batch_settings["search_timeout_min"] = max(0, float(data.get("search_timeout_min", bot_state.batch_settings["search_timeout_min"])))
+        except (TypeError, ValueError):
+            return web.json_response({"status":"error", "error":"Search timeout must be a number"}, status=400)
+        save_batch_settings()
+        bot_state.log(f"Batch settings: {bot_state.batch_settings['concurrency']} at once, skip after {bot_state.batch_settings['search_timeout_min']:g} min without a match", "info")
+        return web.json_response({"status":"ok", **batch_summary()})
+    except Exception as e:
+        return web.json_response({"status":"error", "error":str(e)}, status=500)
+
 async def handle_delete_account(request):
     try:
         data = await request.json(); requested = str(data.get("uid", "")).strip()
@@ -140,6 +236,8 @@ async def handle_delete_account(request):
                 login_uid = str(credentials.get("uid", requested)); break
         accounts = [a for a in read_accounts() if str(a.get("uid", "")) != login_uid]
         write_accounts(accounts)
+        if login_uid in bot_state.batch_queue: bot_state.batch_queue.remove(login_uid)
+        bot_state.batch_active.discard(login_uid)
         task = bot_state.account_workers.pop(login_uid, None)
         if task and not task.done():
             task.cancel()
@@ -240,6 +338,8 @@ async def start_web_dashboard(host="0.0.0.0", port=20335):
     app.router.add_post("/api/account/refresh", handle_refresh_account)
     app.router.add_post("/api/account/parallel-limit", handle_parallel_limit)
     app.router.add_post("/api/account/target-level", handle_target_level)
+    app.router.add_post("/api/account/bulk-add", handle_bulk_add)
+    app.router.add_post("/api/batch/settings", handle_batch_settings)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, host, port).start()

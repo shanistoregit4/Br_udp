@@ -58,6 +58,11 @@ except ImportError:
     bot_state = DummyBotState()
     async def start_web_dashboard(host="0.0.0.0", port=20335): pass
 
+try:
+    from dashboard_server import set_batch_state
+except ImportError:
+    def set_batch_state(uid, state): pass
+
 # ==================== CONFIGURATION ====================
 WEB_HOST = "0.0.0.0"
 WEB_PORT = 20335
@@ -998,6 +1003,33 @@ def _target_level_reached(uid):
         return True
     return bool(account.get("level_stop_requested", False))
 
+def _batch_timeout_seconds():
+    settings = getattr(bot_state, "batch_settings", {})
+    return float(settings.get("search_timeout_min", 5) or 0) * 60
+
+def _search_timeout_hit(uid):
+    """Bulk mode: True once an account has searched with no match started for the configured minutes."""
+    account = bot_state.accounts.get(str(uid), {})
+    if not account.get("batch"):
+        return False
+    if account.get("skip_requested"):
+        return True
+    timeout = _batch_timeout_seconds()
+    if timeout <= 0:
+        return False
+    if any(not t.done() for t in bot_state.match_tasks.get(str(uid), set())):
+        account["search_idle_since"] = None  # a match is running, so it is not idle
+        return False
+    now = time.time()
+    since = account.get("search_idle_since")
+    if since is None:
+        account["search_idle_since"] = now
+        return False
+    if now - since >= timeout:
+        account["skip_requested"] = True
+        return True
+    return False
+
 async def _wait_for_match_slot(uid, limit):
     """Wait BEFORE a new search request is sent; zero means unlimited."""
     while limit > 0:
@@ -1040,6 +1072,10 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                 await asyncio.gather(*active, return_exceptions=True)
             bot_state.update_status(uid_str, "LEVEL TARGET REACHED", 0)
             bot_state.log(f"UID {uid_str}: target level reached; active matches completed and new searches stopped", "success", uid_str)
+            return
+        if _search_timeout_hit(uid_str):
+            bot_state.update_status(uid_str, "SKIPPED", 0)
+            bot_state.log(f"UID {uid_str}: no match started within {_batch_timeout_seconds()/60:g} min of searching; account skipped", "warning", uid_str)
             return
         writer = None
         gateway_ping_task = None
@@ -1107,6 +1143,8 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                     bot_state.update_status(uid_str, "LEVEL TARGET REACHED", 0)
                     bot_state.log(f"UID {uid_str}: target level reached; no further match searches", "success", uid_str)
                     return
+                if _search_timeout_hit(uid_str):
+                    break
                 # 🛑 ऑटो-आईपी स्विचिंग ट्रिगर: अगर 10 बार में मैच न मिले तो तुरंत आईपी बदलो
                 if search_attempts >= MAX_SEARCHES_BEFORE_IP_SWITCH:
                     print_warning(f"[!] UID {uid_str} exceeded #{MAX_SEARCHES_BEFORE_IP_SWITCH} searches. Possible IP Shadow-Ban!")
@@ -1290,12 +1328,15 @@ async def process_account_uid_pass(uid: str, password: str) -> Optional[Dict]:
         bot_state.register_account(uid=acc_id, nickname=nickname, region=region, level=level, exp=exp)
         try:
             saved_cfg = next((a for a in load_accounts() if str(a.get('uid')) == str(uid)), {})
-            bot_state.accounts[acc_id]['max_parallel_matches'] = int(saved_cfg.get('max_parallel_matches', 0) or 0)
-            bot_state.accounts[acc_id]['target_level'] = int(saved_cfg.get('target_level', 0) or 0)
+            bot_state.accounts[acc_id]['max_parallel_matches'] = int(saved_cfg.get('max_parallel_matches', 1) or 0)
+            bot_state.accounts[acc_id]['target_level'] = int(saved_cfg.get('target_level', 8) or 0)
             bot_state.accounts[acc_id]['level_stop_requested'] = False
+            bot_state.accounts[acc_id]['batch'] = bool(saved_cfg.get('batch', False))
+            bot_state.accounts[acc_id]['skip_requested'] = False
+            bot_state.accounts[acc_id]['search_idle_since'] = None
         except Exception:
-            bot_state.accounts[acc_id]['max_parallel_matches'] = 0
-            bot_state.accounts[acc_id]['target_level'] = 0
+            bot_state.accounts[acc_id]['max_parallel_matches'] = 1
+            bot_state.accounts[acc_id]['target_level'] = 8
         # Replace the temporary login-UID card once the real in-game account ID is known.
         if str(uid) != acc_id:
             bot_state.accounts.pop(str(uid), None)
@@ -1319,8 +1360,8 @@ async def process_account_uid_pass(uid: str, password: str) -> Optional[Dict]:
             'client_version': client_version,
             'server_url': majorlogin_response.url,
             'login_payload_data': login_payload_data,
-            'max_parallel_matches': int(next((a.get('max_parallel_matches', 0) for a in load_accounts() if str(a.get('uid')) == str(uid)), 0) or 0),
-            'target_level': int(next((a.get('target_level', 0) for a in load_accounts() if str(a.get('uid')) == str(uid)), 0) or 0),
+            'max_parallel_matches': int(next((a.get('max_parallel_matches', 1) for a in load_accounts() if str(a.get('uid')) == str(uid)), 1) or 0),
+            'target_level': int(next((a.get('target_level', 8) for a in load_accounts() if str(a.get('uid')) == str(uid)), 8) or 0),
         }
         print_success(f"Login OK | UID {acc_id} | {nickname} | Lvl {level} | Region: {region}")
         return account_data
@@ -1329,19 +1370,37 @@ async def process_account_uid_pass(uid: str, password: str) -> Optional[Dict]:
         return None
 
 # ==================== WORKER LOOP ====================
+def _batch_login_gave_up(uid_str, since):
+    """Bulk mode: an account that cannot log in within the search timeout is skipped too."""
+    if uid_str not in getattr(bot_state, "batch_active", ()):
+        return False
+    timeout = _batch_timeout_seconds()
+    return timeout > 0 and time.time() - since >= timeout
+
 async def account_loop_guest(uid: str, password: str):
     uid_str = str(uid)
+    login_since = time.time()
     while True:
         try:
             bot_state.update_status(uid_str, "CONNECTING")
             account_data = await process_account_uid_pass(uid_str, password)
             if not account_data:
+                if _batch_login_gave_up(uid_str, login_since):
+                    bot_state.batch_results[uid_str] = "skipped"
+                    bot_state.update_status(uid_str, "SKIPPED", 0)
+                    bot_state.log(f"Login UID {uid_str}: could not log in within {_batch_timeout_seconds()/60:g} min; account skipped", "warning", uid_str)
+                    break
                 proxy_pool.rotate()
                 await asyncio.sleep(10)
                 continue
 
             func_addr = account_data.get('functional_addrs')
             if not func_addr:
+                if _batch_login_gave_up(uid_str, login_since):
+                    bot_state.batch_results[uid_str] = "skipped"
+                    bot_state.update_status(uid_str, "SKIPPED", 0)
+                    bot_state.log(f"Login UID {uid_str}: no gateway address within {_batch_timeout_seconds()/60:g} min; account skipped", "warning", uid_str)
+                    break
                 await asyncio.sleep(5)
                 continue
 
@@ -1356,6 +1415,12 @@ async def account_loop_guest(uid: str, password: str):
                 account_id=account_data['account_id'], account_data=account_data,
                 max_parallel_matches=int(account_data.get('max_parallel_matches', 0) or 0)
             )
+            # Bulk accounts are finished once functional_br returns (target reached or skipped): close the worker
+            # so the scheduler can immediately start the next queued account.
+            finished_id = str(account_data['account_id'])
+            if bot_state.accounts.get(finished_id, {}).get('batch'):
+                bot_state.batch_results[uid_str] = "done" if _target_level_reached(finished_id) else "skipped"
+                break
         except asyncio.CancelledError:
             bot_state.update_status(uid_str, "OFFLINE")
             break
@@ -1390,7 +1455,37 @@ async def start_dashboard_account(account):
         await asyncio.gather(old_task, return_exceptions=True)
     task = asyncio.create_task(account_loop_guest(uid, password), name=f"account-{uid}")
     bot_state.account_workers[uid] = task
+    if account.get("batch") and hasattr(bot_state, "batch_active"):
+        bot_state.batch_active.add(uid)
     bot_state.log(f"Worker started for login UID {uid}", "success", uid)
+
+async def batch_scheduler():
+    """Rolling batch runner: keeps up to N bulk accounts working at once and refills a slot the moment
+    an account reaches its target level or is skipped, without waiting for the other accounts."""
+    while True:
+        try:
+            for uid in list(bot_state.batch_active):
+                task = bot_state.account_workers.get(uid)
+                if task is None or task.done():
+                    bot_state.batch_active.discard(uid)
+                    result = bot_state.batch_results.pop(uid, None)
+                    if result:
+                        set_batch_state(uid, result)
+                        bot_state.log(f"Batch: {uid} {'reached target level' if result == 'done' else 'skipped'}; slot freed", "success" if result == "done" else "warning", uid)
+            limit = max(1, int(bot_state.batch_settings.get("concurrency", 10) or 1))
+            while bot_state.batch_queue and len(bot_state.batch_active) < limit:
+                uid = bot_state.batch_queue.pop(0)
+                account = next((a for a in load_accounts() if str(a.get("uid")) == uid), None)
+                if not account:
+                    continue
+                bot_state.batch_active.add(uid)
+                set_batch_state(uid, "active")
+                await start_dashboard_account(account)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print_error(f"Batch scheduler error: {e}")
+        await asyncio.sleep(0.5)
 
 async def main():
     print_colored("=" * 60, Colors.CYAN)
@@ -1408,12 +1503,19 @@ async def main():
     accounts = load_accounts()
     print_info(f"Loaded {len(accounts)} dashboard-saved account(s) and {len(proxy_pool.proxies)} proxy IP(s).")
     for acc in accounts:
+        if acc.get("batch"):
+            # Bulk accounts are started by the batch scheduler; finished/skipped ones stay finished.
+            if acc.get("batch_state") not in ("done", "skipped"):
+                bot_state.batch_queue.append(str(acc.get("uid")))
+            continue
         await start_dashboard_account(acc)
+    scheduler_task = asyncio.create_task(batch_scheduler(), name="batch-scheduler")
 
     try:
         # Keep the dashboard alive even when no accounts have been added yet.
         await asyncio.Event().wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
+        scheduler_task.cancel()
         tasks = list(bot_state.account_workers.values())
         for t in tasks:
             t.cancel()
