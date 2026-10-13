@@ -1080,10 +1080,6 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                     continue
 
                 if (hex_data.startswith("0300") and packet_length >= 300) or packet_length >= 500:
-                    print_colored("=" * 60, Colors.GREEN)
-                    print_colored(f"🎉 MATCH FOUND! Initializing UDP Game Room | UID: {uid_str}", Colors.GREEN)
-                    print_colored("=" * 60, Colors.GREEN)
-
                     payload_hex = hex_data[10:] if hex_data.startswith("0300") else hex_data
                     res = json.loads(await decode_protobuf(payload_hex))
 
@@ -1109,12 +1105,15 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                             match_code = nested_match_code
                         block_val = _field_data(f5, 1)
                     else:
-                        print_error(
-                            f"UID {uid_str}: gateway match payload has unexpected field 5 type "
-                            f"{type(f5).__name__}; ignoring it instead of reporting a started match."
-                        )
+                        # Large gateway packets are not necessarily match-start payloads.
+                        # If field 5 is absent or not a decoded nested message, ignore this
+                        # packet quietly and keep reading; do not emit a false match warning.
+                        continue
 
                     if token and udp_key and match_code is not None and server_ip_port:
+                        print_colored("=" * 60, Colors.GREEN)
+                        print_colored(f"🎉 MATCH FOUND! Initializing UDP Game Room | UID: {uid_str}", Colors.GREEN)
+                        print_colored("=" * 60, Colors.GREEN)
                         acc_tok = account_data.get('access_token', '') if account_data else ""
                         thunder, sharma = await build_match_startup_packets(
                             token, udp_key, match_code, account_id, block_val or 0,
