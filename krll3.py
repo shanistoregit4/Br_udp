@@ -71,8 +71,8 @@ MAX_SEARCHES_BEFORE_IP_SWITCH = 10
 
 START_MATCH_INTERVAL = 1.0
 NEW_MATCH_DELAY = 1.5
-MAX_MATCH_DURATION = 230  # ~3 मिनट 50 सेकंड सुरक्षित EXP समय
-MATCH_IDLE_TIMEOUT = 5.0
+MAX_MATCH_DURATION = None  # No hard match-duration cutoff; end on server completion or inactivity
+MATCH_IDLE_TIMEOUT = 8.0
 
 MODE_ID = 1
 MAP_ID = 1
@@ -824,10 +824,9 @@ async def build_match_startup_packets(token, udp_key, match_code, account_id, bl
     return process.hex(), loading.hex()
 
 # ==================== LIVE TERMINAL ANIMATION ====================
-async def match_animation_worker(match_index: int, start_time: float, stop_event: asyncio.Event, max_duration: float):
+async def match_animation_worker(match_index: int, start_time: float, stop_event: asyncio.Event, max_duration=None):
     spinner = itertools.cycle(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
-    max_min, max_sec = divmod(int(max_duration), 60)
-    max_str = f"{max_min:02d}:{max_sec:02d}"
+    max_str = "∞" if max_duration is None else f"{int(max_duration)//60:02d}:{int(max_duration)%60:02d}"
 
     while not stop_event.is_set():
         elapsed = int(time.time() - start_time)
@@ -912,9 +911,6 @@ async def play_game(server_ip_port, thunder, sharma, udp_key, match_code,
 
         while not local_closed:
             elapsed = time.time() - match_start_time
-            if elapsed > MAX_MATCH_DURATION:
-                completed_cleanly = True
-                break
             try:
                 response, server_addr = await asyncio.wait_for(loop.sock_recvfrom(sock, 65535), timeout=1.5)
                 if response:
@@ -997,6 +993,18 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                         key, iv, account_id="", account_data=None):
     ip, port = addrs.split(":")
     uid_str = str(account_id)
+    next_match_index = 0
+    play_matches = set()
+
+    async def run_match_and_refresh(*args):
+        try:
+            await play_game(*args)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print_error(f"[MATCH] UID {uid_str} background match error: {exc}")
+        finally:
+            await refresh_account_profile(account_data)
 
     while True:
         writer = None
@@ -1098,21 +1106,32 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                             mode_id=MODE_ID, map_id=MAP_ID
                         )
 
-                        new_match = asyncio.create_task(
-                            play_game(server_ip_port, thunder, sharma, udp_key, match_code,
-                                      account_id, account_region, client_version, key, iv, match_index=1)
+                        next_match_index += 1
+                        match_task = asyncio.create_task(
+                            run_match_and_refresh(
+                                server_ip_port, thunder, sharma, udp_key, match_code,
+                                account_id, account_region, client_version, key, iv,
+                                match_index=next_match_index
+                            ),
+                            name=f"match-{uid_str}-{next_match_index}"
                         )
+                        play_matches.add(match_task)
+                        match_task.add_done_callback(play_matches.discard)
                         bot_state.update_status(uid_str, "IN_MATCH")
+                        print_info(
+                            f"[PARALLEL] UID {uid_str}: match #{next_match_index} is running in background; "
+                            f"{len(play_matches)} active match task(s) tracked. Reconnecting for the next search."
+                        )
 
-                        while not new_match.done():
-                            try:
-                                d = await asyncio.wait_for(reader.read(4096), timeout=1.0)
-                                if not d: break
-                            except Exception:
-                                pass
-
-                        await new_match
-                        await refresh_account_profile(account_data)
+                        # Keep the existing gateway and packet protocol unchanged. Close this gateway
+                        # after receiving match details, then let the outer loop reconnect and search
+                        # while the UDP match continues independently in the background.
+                        try:
+                            writer.close()
+                            await writer.wait_closed()
+                        except Exception:
+                            pass
+                        await asyncio.sleep(NEW_MATCH_DELAY)
                         break
 
         except Exception as e:

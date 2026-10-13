@@ -22,3 +22,10 @@
 ## Local dashboard
 
 Run `python krll3.py`, then open `http://127.0.0.1:20335` on the same device. The dashboard lets you add, refresh, and remove UID/password accounts. Only accounts saved through the dashboard (stored in `accounts.json`) are started; the built-in fallback account has been removed. Keep `accounts.json` private because it contains credentials.
+
+## Parallel match behavior
+
+- Match UDP workers run in the background, so the account gateway can reconnect and request another match while earlier UDP matches remain active.
+- There is no hard wall-clock match-duration cutoff. A match ends when the server signals completion or when the existing inactivity check fires (8 seconds without received UDP activity after the handshake).
+- TCP/UDP endpoints, packet builders, encryption, proxy connection handling, and login flow were left unchanged.
+
