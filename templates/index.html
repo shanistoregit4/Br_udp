@@ -414,6 +414,10 @@
                         <label>Parallel match limit (0 = unlimited)</label>
                         <input type="number" min="0" step="1" class="input" id="in-parallel" value="0" placeholder="0 = unlimited">
                     </div>
+                    <div class="field">
+                        <label>Target level (0 = disabled; finish active matches)</label>
+                        <input type="number" min="0" step="1" class="input" id="in-target-level" value="0" placeholder="0 = disabled">
+                    </div>
                 </div>
                 <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
                     <button type="button" class="btn btn-secondary" onclick="closeAdd()">Cancel</button>
@@ -435,7 +439,8 @@
             const password = document.getElementById('in-pass').value.trim();
             if (!uid || !password) return alert('UID and Password required');
             const max_parallel_matches = Math.max(0, parseInt(document.getElementById('in-parallel').value || '0', 10) || 0);
-            const payload = { uid, password, max_parallel_matches };
+            const target_level = Math.max(0, parseInt(document.getElementById('in-target-level').value || '0', 10) || 0);
+            const payload = { uid, password, max_parallel_matches, target_level };
             try {
                 const r = await fetch('/api/account/add', {
                     method: 'POST',
@@ -475,6 +480,17 @@
                 });
                 const d = await r.json();
                 if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save limit'));
+                fetchStats();
+            } catch (e) { alert('Request failed: ' + e); }
+        }
+
+        async function saveTargetLevel(uid) {
+            const el = document.getElementById('target-' + uid);
+            const target_level = Math.max(0, parseInt(el?.value || '0', 10) || 0);
+            try {
+                const r = await fetch('/api/account/target-level', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid, target_level}) });
+                const d = await r.json();
+                if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save target level'));
                 fetchStats();
             } catch (e) { alert('Request failed: ' + e); }
         }
@@ -530,6 +546,7 @@
                         let stTxt = st;
                         if (st === 'IN_MATCH') stTxt = `IN MATCH (${a.active_matches || 0})`;
                         const parallelLimit = (a.max_parallel_matches === undefined || a.max_parallel_matches === 0) ? 'Unlimited' : a.max_parallel_matches;
+                        const targetLevel = a.target_level || 0;
 
                         return `
                         <div class="acc-card">
@@ -554,6 +571,11 @@
                                 <div class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">
                                     <input type="number" min="0" step="1" class="input" id="limit-${esc(a.uid)}" value="${a.max_parallel_matches || 0}" aria-label="Parallel match limit for ${esc(a.uid)}" style="min-width:0;max-width:140px;padding:7px">
                                     <button class="ib" title="Save parallel limit (0 = unlimited)" onclick="saveParallelLimit('${a.uid}')"><i class="fa-solid fa-sliders"></i></button>
+                                </div>
+                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                                    <label style="min-width:90px">Target level</label>
+                                    <input type="number" min="0" step="1" class="input" id="target-${esc(a.uid)}" value="${targetLevel}" aria-label="Target level for ${esc(a.uid)}" style="min-width:0;max-width:140px;padding:7px">
+                                    <button class="ib" title="Save target level (0 = disabled)" onclick="saveTargetLevel('${a.uid}')"><i class="fa-solid fa-flag-checkered"></i></button>
                                 </div>
                                 <div class="prog-bg"><div class="prog-fill" style="width:${Math.min(100, Math.max(8, ((a.current_exp || 0) % 1000) / 10))}%"></div></div>
                             </div>
