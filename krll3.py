@@ -1088,16 +1088,33 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                     res = json.loads(await decode_protobuf(payload_hex))
 
                     token = None; udp_key = None; match_code = None; server_ip_port = None; block_val = None
-                    if '42' in res and 'data' in res['42']: match_code = res['42']['data']
-                    if '5' in res and 'data' in res['5']:
-                        f5 = res['5']['data']
-                        server_ip_port = f5.get('2', {}).get('data')
-                        udp_key = f5.get('3', {}).get('data')
-                        token = f5.get('4', {}).get('data')
-                        if '42' in f5: match_code = f5['42']['data']
-                        block_val = f5.get('1', {}).get('data')
 
-                    if token and udp_key and match_code and server_ip_port:
+                    # Protobuf fields are normally {"wire_type": ..., "data": ...},
+                    # but malformed/alternate gateway payloads can decode to scalars.
+                    # Never call .get() on an unchecked value.
+                    def _field_data(container, field):
+                        if not isinstance(container, dict):
+                            return None
+                        value = container.get(str(field))
+                        return value.get("data") if isinstance(value, dict) else None
+
+                    match_code = _field_data(res, 42)
+                    f5 = _field_data(res, 5)
+                    if isinstance(f5, dict):
+                        server_ip_port = _field_data(f5, 2)
+                        udp_key = _field_data(f5, 3)
+                        token = _field_data(f5, 4)
+                        nested_match_code = _field_data(f5, 42)
+                        if nested_match_code is not None:
+                            match_code = nested_match_code
+                        block_val = _field_data(f5, 1)
+                    else:
+                        print_error(
+                            f"UID {uid_str}: gateway match payload has unexpected field 5 type "
+                            f"{type(f5).__name__}; ignoring it instead of reporting a started match."
+                        )
+
+                    if token and udp_key and match_code is not None and server_ip_port:
                         acc_tok = account_data.get('access_token', '') if account_data else ""
                         thunder, sharma = await build_match_startup_packets(
                             token, udp_key, match_code, account_id, block_val or 0,
@@ -1117,7 +1134,7 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                         )
                         play_matches.add(match_task)
                         match_task.add_done_callback(play_matches.discard)
-                        bot_state.update_status(uid_str, "IN_MATCH")
+                        bot_state.update_status(uid_str, "SEARCHING")
                         print_info(
                             f"[PARALLEL] UID {uid_str}: match #{next_match_index} is running in background; "
                             f"{len(play_matches)} active match task(s) tracked. Reconnecting for the next search."
