@@ -1111,7 +1111,7 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                             run_match_and_refresh(
                                 server_ip_port, thunder, sharma, udp_key, match_code,
                                 account_id, account_region, client_version, key, iv,
-                                match_index=next_match_index
+                                next_match_index
                             ),
                             name=f"match-{uid_str}-{next_match_index}"
                         )
