@@ -338,6 +338,7 @@
             <div class="header-actions">
                 <span class="live-pill"><span class="live-dot"></span> Live</span>
                 <button class="btn btn-secondary" onclick="fetchStats()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                <button class="btn btn-secondary" onclick="openBulk()"><i class="fa-solid fa-list"></i> Bulk Add</button>
                 <button class="btn btn-primary" onclick="openAdd()"><i class="fa-solid fa-plus"></i> Add Account</button>
             </div>
         </header>
@@ -370,6 +371,24 @@
                     <h3 id="s-uptime" style="color:var(--accent-warn)">00:00:00</h3>
                     <p>Dashboard Uptime</p>
                 </div>
+            </div>
+        </div>
+
+        <div class="panel" id="batch-panel" style="margin-bottom:18px; display:none;">
+            <div class="panel-head">
+                <div class="panel-title"><i class="fa-solid fa-layer-group" style="color:var(--accent-primary)"></i> Bulk Queue</div>
+                <span class="panel-sub" id="batch-summary">--</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; padding:14px 18px;">
+                <div class="field" style="margin:0;">
+                    <label>Accounts at once</label>
+                    <input type="number" min="1" step="1" class="input" id="batch-concurrency" value="10" style="max-width:120px;">
+                </div>
+                <div class="field" style="margin:0;">
+                    <label>Skip if no match in (min, 0 = never)</label>
+                    <input type="number" min="0" step="1" class="input" id="batch-timeout" value="5" style="max-width:120px;">
+                </div>
+                <button class="btn btn-secondary" onclick="saveBatchSettings()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
             </div>
         </div>
 
@@ -412,16 +431,51 @@
                     </div>
                     <div class="field">
                         <label>Parallel match limit (0 = unlimited)</label>
-                        <input type="number" min="0" step="1" class="input" id="in-parallel" value="0" placeholder="0 = unlimited">
+                        <input type="number" min="0" step="1" class="input" id="in-parallel" value="1" placeholder="1">
                     </div>
                     <div class="field">
                         <label>Target level (0 = disabled; finish active matches)</label>
-                        <input type="number" min="0" step="1" class="input" id="in-target-level" value="0" placeholder="0 = disabled">
+                        <input type="number" min="0" step="1" class="input" id="in-target-level" value="8" placeholder="8">
                     </div>
                 </div>
                 <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
                     <button type="button" class="btn btn-secondary" onclick="closeAdd()">Cancel</button>
                     <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Save & Start</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-bg" id="bulk-modal">
+        <div class="modal">
+            <div class="modal-head">
+                <h3><i class="fa-solid fa-list" style="color:var(--accent-primary); margin-right:8px;"></i> Bulk Add Accounts</h3>
+                <button class="ib" onclick="closeBulk()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="bulk-form" onsubmit="submitBulk(event)">
+                <div class="field">
+                    <label>Paste accounts (UID:PASSWORD per line, or a whole paragraph)</label>
+                    <textarea class="input" id="bulk-text" rows="8" placeholder="7644913583:ZERO_GRAVITY_4NM38&#10;1234567890:PASSWORD_2" style="resize:vertical;"></textarea>
+                </div>
+                <div class="field">
+                    <label>Accounts at once</label>
+                    <input type="number" min="1" step="1" class="input" id="bulk-concurrency" value="10">
+                </div>
+                <div class="field">
+                    <label>Target level (0 = disabled)</label>
+                    <input type="number" min="0" step="1" class="input" id="bulk-target-level" value="8">
+                </div>
+                <div class="field">
+                    <label>Parallel match limit per account (0 = unlimited)</label>
+                    <input type="number" min="0" step="1" class="input" id="bulk-parallel" value="1">
+                </div>
+                <div class="field">
+                    <label>Skip account if no match starts in (minutes, 0 = never)</label>
+                    <input type="number" min="0" step="1" class="input" id="bulk-timeout" value="5">
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
+                    <button type="button" class="btn btn-secondary" onclick="closeBulk()">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Queue & Start</button>
                 </div>
             </form>
         </div>
@@ -438,8 +492,8 @@
             const uid = document.getElementById('in-uid').value.trim();
             const password = document.getElementById('in-pass').value.trim();
             if (!uid || !password) return alert('UID and Password required');
-            const max_parallel_matches = Math.max(0, parseInt(document.getElementById('in-parallel').value || '0', 10) || 0);
-            const target_level = Math.max(0, parseInt(document.getElementById('in-target-level').value || '0', 10) || 0);
+            const max_parallel_matches = Math.max(0, parseInt(document.getElementById('in-parallel').value || '1', 10) || 0);
+            const target_level = Math.max(0, parseInt(document.getElementById('in-target-level').value || '8', 10) || 0);
             const payload = { uid, password, max_parallel_matches, target_level };
             try {
                 const r = await fetch('/api/account/add', {
@@ -455,6 +509,43 @@
                 } else {
                     alert('Error: ' + (d.error || 'Unknown'));
                 }
+            } catch (err) { alert('Request failed: ' + err); }
+        }
+
+        function openBulk() { document.getElementById('bulk-modal').classList.add('on'); }
+        function closeBulk() { document.getElementById('bulk-modal').classList.remove('on'); }
+        async function submitBulk(e) {
+            e.preventDefault();
+            const text = document.getElementById('bulk-text').value;
+            if (!text.trim()) return alert('Paste at least one UID and password');
+            const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? def : Math.max(0, v); };
+            const payload = {
+                text,
+                concurrency: Math.max(1, Math.floor(num('bulk-concurrency', 10))),
+                target_level: Math.floor(num('bulk-target-level', 8)),
+                max_parallel_matches: Math.floor(num('bulk-parallel', 1)),
+                search_timeout_min: num('bulk-timeout', 5)
+            };
+            try {
+                const r = await fetch('/api/account/bulk-add', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+                const d = await r.json();
+                if (d.status === 'ok') {
+                    closeBulk();
+                    document.getElementById('bulk-form').reset();
+                    alert('Queued ' + d.added + ' account(s)' + (d.duplicates ? ' (' + d.duplicates + ' duplicate(s) skipped)' : ''));
+                    fetchStats();
+                } else { alert('Error: ' + (d.error || 'Unknown')); }
+            } catch (err) { alert('Request failed: ' + err); }
+        }
+        async function saveBatchSettings() {
+            const concurrency = Math.max(1, parseInt(document.getElementById('batch-concurrency').value || '10', 10) || 1);
+            const t = parseFloat(document.getElementById('batch-timeout').value);
+            const search_timeout_min = isNaN(t) ? 5 : Math.max(0, t);
+            try {
+                const r = await fetch('/api/batch/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ concurrency, search_timeout_min }) });
+                const d = await r.json();
+                if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save'));
+                fetchStats();
             } catch (err) { alert('Request failed: ' + err); }
         }
 
@@ -527,6 +618,16 @@
                 document.getElementById('s-exp').innerText = '+' + (d.total_gained_exp || 0).toLocaleString();
                 document.getElementById('s-match').innerText = d.total_matches || 0;
 
+                const b = d.batch;
+                const bp = document.getElementById('batch-panel');
+                if (b && (b.pending + b.active + b.done + b.skipped) > 0) {
+                    bp.style.display = '';
+                    document.getElementById('batch-summary').innerText = `Pending ${b.pending} | Active ${b.active} | Done ${b.done} | Skipped ${b.skipped}`;
+                    const ci = document.getElementById('batch-concurrency'), ti = document.getElementById('batch-timeout');
+                    if (document.activeElement !== ci) ci.value = b.concurrency;
+                    if (document.activeElement !== ti) ti.value = b.search_timeout_min;
+                } else { bp.style.display = 'none'; }
+
                 const up = d.uptime || 0;
                 document.getElementById('s-uptime').innerText = fmtUptime(up);
 
@@ -540,7 +641,7 @@
                         let cls = 'st-online';
                         if (st === 'IN_MATCH') cls = 'st-match';
                         else if (st.startsWith('SEARCHING')) cls = 'st-search';
-                        else if (st === 'ERROR') cls = 'st-error';
+                        else if (st === 'ERROR' || st === 'SKIPPED') cls = 'st-error';
                         else if (st === 'OFFLINE' || st === 'CONNECTING') cls = 'st-idle';
 
                         let stTxt = st;
