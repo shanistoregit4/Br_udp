@@ -22,6 +22,7 @@ class BotState:
         self.account_workers: Dict[str, asyncio.Task] = {}  # keyed by login UID
         self.refresh_callbacks: Dict[str, Any] = {}
         self.account_credentials: Dict[str, Dict[str, Any]] = {}  # keyed by in-game account ID
+        self.match_tasks: Dict[str, set] = {}  # keyed by in-game account ID
 
     def log(self, message: str, level: str = "info", uid: Optional[str] = None):
         self.logs.append({"time": time.strftime("%H:%M:%S"), "level": level, "message": message, "uid": uid})
@@ -32,7 +33,7 @@ class BotState:
         if uid not in self.accounts:
             self.accounts[uid] = {"uid": uid, "nickname": nickname or f"Player_{uid[:6]}", "region": region or "ME",
                 "level": level or 1, "initial_exp": exp, "current_exp": exp, "gained_exp": 0, "likes": likes or 0,
-                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "last_match_time": None,
+                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "max_parallel_matches": 0, "last_match_time": None,
                 "last_updated": time.strftime("%H:%M:%S")}
         else:
             a = self.accounts[uid]
@@ -111,16 +112,18 @@ async def handle_add_account(request):
         data = await request.json()
         uid = str(data.get("uid", "")).strip()
         password = str(data.get("password", "")).strip()
+        try: max_parallel = max(0, int(data.get("max_parallel_matches", 0)))
+        except (TypeError, ValueError): max_parallel = 0
         if not uid or not password:
             return web.json_response({"status":"error", "error":"UID and Password are required"}, status=400)
         accounts = read_accounts()
         if any(str(a.get("uid", "")) == uid for a in accounts):
             return web.json_response({"status":"error", "error":"That UID is already added"}, status=409)
-        accounts.append({"uid": uid, "password": password})
+        accounts.append({"uid": uid, "password": password, "max_parallel_matches": max_parallel})
         write_accounts(accounts)
         bot_state.log(f"Account {uid} added from dashboard", "success", uid)
         callback = bot_state.refresh_callbacks.get("on_account_added")
-        if callback: await callback({"uid": uid, "password": password})
+        if callback: await callback({"uid": uid, "password": password, "max_parallel_matches": max_parallel})
         return web.json_response({"status":"ok"})
     except Exception as e:
         return web.json_response({"status":"error", "error":str(e)}, status=500)
@@ -136,13 +139,52 @@ async def handle_delete_account(request):
         accounts = [a for a in read_accounts() if str(a.get("uid", "")) != login_uid]
         write_accounts(accounts)
         task = bot_state.account_workers.pop(login_uid, None)
-        if task and not task.done(): task.cancel()
-        for acc_id, credentials in list(bot_state.account_credentials.items()):
-            if str(credentials.get("uid", "")) == login_uid or acc_id == requested:
-                bot_state.account_credentials.pop(acc_id, None)
-                bot_state.accounts.pop(acc_id, None)
+        if task and not task.done():
+            task.cancel()
+        # Cancel every detached UDP match task belonging to this account.
+        account_ids = [acc_id for acc_id, credentials in list(bot_state.account_credentials.items())
+                       if str(credentials.get("uid", "")) == login_uid or acc_id == requested]
+        account_ids.append(requested)
+        for acc_id in set(account_ids):
+            for match_task in list(bot_state.match_tasks.get(str(acc_id), set())):
+                if not match_task.done(): match_task.cancel()
+            bot_state.match_tasks.pop(str(acc_id), None)
+            bot_state.account_credentials.pop(str(acc_id), None)
+            bot_state.accounts.pop(str(acc_id), None)
         bot_state.log(f"Account {login_uid} removed from dashboard rotation", "warning", login_uid)
         return web.json_response({"status":"ok"})
+    except Exception as e:
+        return web.json_response({"status":"error", "error":str(e)}, status=500)
+
+async def handle_parallel_limit(request):
+    try:
+        data = await request.json()
+        requested = str(data.get("uid", "")).strip()
+        try: limit = max(0, int(data.get("max_parallel_matches", 0)))
+        except (TypeError, ValueError):
+            return web.json_response({"status":"error", "error":"Limit must be a non-negative integer"}, status=400)
+        login_uid = requested
+        for acc_id, credentials in list(bot_state.account_credentials.items()):
+            if acc_id == requested:
+                login_uid = str(credentials.get("uid", requested)); break
+        saved = read_accounts()
+        found = False
+        for account in saved:
+            if str(account.get("uid", "")) == login_uid:
+                account["max_parallel_matches"] = limit
+                found = True
+                break
+        if not found:
+            return web.json_response({"status":"error", "error":"Account not found"}, status=404)
+        write_accounts(saved)
+        for acc_id, credentials in list(bot_state.account_credentials.items()):
+            if str(credentials.get("uid", "")) == login_uid or acc_id == requested:
+                if acc_id in bot_state.accounts:
+                    bot_state.accounts[acc_id]["max_parallel_matches"] = limit
+        if requested in bot_state.accounts:
+            bot_state.accounts[requested]["max_parallel_matches"] = limit
+        bot_state.log(f"Parallel match limit for {login_uid} set to {'unlimited' if limit == 0 else limit}", "info", login_uid)
+        return web.json_response({"status":"ok", "max_parallel_matches":limit})
     except Exception as e:
         return web.json_response({"status":"error", "error":str(e)}, status=500)
 
@@ -168,6 +210,7 @@ async def start_web_dashboard(host="0.0.0.0", port=20335):
     app.router.add_post("/api/account/add", handle_add_account)
     app.router.add_post("/api/account/delete", handle_delete_account)
     app.router.add_post("/api/account/refresh", handle_refresh_account)
+    app.router.add_post("/api/account/parallel-limit", handle_parallel_limit)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, host, port).start()

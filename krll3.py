@@ -990,7 +990,7 @@ async def play_game(server_ip_port, thunder, sharma, udp_key, match_code,
 
 # ==================== PERSISTENT TCP GATEWAY WITH AUTO IP-FAILOVER ====================
 async def functional_br(addrs, starter_packet, account_region, client_version,
-                        key, iv, account_id="", account_data=None):
+                        key, iv, account_id="", account_data=None, max_parallel_matches=0):
     ip, port = addrs.split(":")
     uid_str = str(account_id)
     next_match_index = 0
@@ -1005,6 +1005,9 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
             print_error(f"[MATCH] UID {uid_str} background match error: {exc}")
         finally:
             await refresh_account_profile(account_data)
+            active = bot_state.match_tasks.get(uid_str, set())
+            remaining = sum(not t.done() for t in active)
+            bot_state.update_status(uid_str, "IN_MATCH" if remaining else "SEARCHING", remaining)
 
     while True:
         writer = None
@@ -1048,7 +1051,8 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                 search_attempts += 1
                 print_info(f"UID {uid_str} -> Match Search #{search_attempts} ({account_region})")
                 await start_game_battle_royale(account_region, client_version, writer, key, iv)
-                bot_state.update_status(uid_str, "SEARCHING")
+                active = bot_state.match_tasks.get(uid_str, set())
+                bot_state.update_status(uid_str, "IN_MATCH" if any(not t.done() for t in active) else "SEARCHING", sum(not t.done() for t in active))
 
             await send_start_match()
             last_start_time = asyncio.get_running_loop().time()
@@ -1122,6 +1126,21 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                             mode_id=MODE_ID, map_id=MAP_ID
                         )
 
+                        # A zero limit means unlimited. Otherwise don't create more active UDP sessions
+                        # than the dashboard-configured per-account cap.
+                        active_tasks = bot_state.match_tasks.setdefault(uid_str, set())
+                        active_tasks.difference_update({t for t in active_tasks if t.done()})
+                        configured_limit = int(bot_state.accounts.get(uid_str, {}).get('max_parallel_matches', max_parallel_matches) or 0)
+                        if configured_limit > 0 and len(active_tasks) >= configured_limit:
+                            print_info(f"UID {uid_str}: parallel limit {configured_limit} reached; waiting for a match slot")
+                            try:
+                                writer.close()
+                                await writer.wait_closed()
+                            except Exception:
+                                pass
+                            await asyncio.sleep(NEW_MATCH_DELAY)
+                            break
+
                         next_match_index += 1
                         match_task = asyncio.create_task(
                             run_match_and_refresh(
@@ -1132,8 +1151,15 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                             name=f"match-{uid_str}-{next_match_index}"
                         )
                         play_matches.add(match_task)
+                        active_tasks.add(match_task)
                         match_task.add_done_callback(play_matches.discard)
-                        bot_state.update_status(uid_str, "SEARCHING")
+                        def _drop_match_task(done_task, tasks=active_tasks, account_uid=uid_str):
+                            tasks.discard(done_task)
+                            remaining = sum(not t.done() for t in tasks)
+                            if account_uid in bot_state.accounts:
+                                bot_state.update_status(account_uid, "IN_MATCH" if remaining else "SEARCHING", remaining)
+                        match_task.add_done_callback(_drop_match_task)
+                        bot_state.update_status(uid_str, "IN_MATCH", len(active_tasks))
                         print_info(
                             f"[PARALLEL] UID {uid_str}: match #{next_match_index} is running in background; "
                             f"{len(play_matches)} active match task(s) tracked. Reconnecting for the next search."
@@ -1208,6 +1234,10 @@ async def process_account_uid_pass(uid: str, password: str) -> Optional[Dict]:
         region = majorlogin_response.region or get_proto_field(dict_res, 3, "IND")
 
         bot_state.register_account(uid=acc_id, nickname=nickname, region=region, level=level, exp=exp)
+        try:
+            bot_state.accounts[acc_id]['max_parallel_matches'] = int(next((a.get('max_parallel_matches', 0) for a in load_accounts() if str(a.get('uid')) == str(uid)), 0) or 0)
+        except Exception:
+            bot_state.accounts[acc_id]['max_parallel_matches'] = 0
         # Replace the temporary login-UID card once the real in-game account ID is known.
         if str(uid) != acc_id:
             bot_state.accounts.pop(str(uid), None)
@@ -1231,6 +1261,7 @@ async def process_account_uid_pass(uid: str, password: str) -> Optional[Dict]:
             'client_version': client_version,
             'server_url': majorlogin_response.url,
             'login_payload_data': login_payload_data,
+            'max_parallel_matches': int(next((a.get('max_parallel_matches', 0) for a in load_accounts() if str(a.get('uid')) == str(uid)), 0) or 0),
         }
         print_success(f"Login OK | UID {acc_id} | {nickname} | Lvl {level} | Region: {region}")
         return account_data
@@ -1263,7 +1294,8 @@ async def account_loop_guest(uid: str, password: str):
             await functional_br(
                 func_addr, tcp_packet_online, account_data['region'],
                 account_data['client_version'], account_data['aes_ak'], account_data['iv_i'],
-                account_id=account_data['account_id'], account_data=account_data
+                account_id=account_data['account_id'], account_data=account_data,
+                max_parallel_matches=int(account_data.get('max_parallel_matches', 0) or 0)
             )
         except asyncio.CancelledError:
             bot_state.update_status(uid_str, "OFFLINE")
