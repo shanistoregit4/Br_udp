@@ -33,7 +33,7 @@ class BotState:
         if uid not in self.accounts:
             self.accounts[uid] = {"uid": uid, "nickname": nickname or f"Player_{uid[:6]}", "region": region or "ME",
                 "level": level or 1, "initial_exp": exp, "current_exp": exp, "gained_exp": 0, "likes": likes or 0,
-                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "max_parallel_matches": 0, "last_match_time": None,
+                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "max_parallel_matches": 0, "target_level": 0, "level_stop_requested": False, "last_match_time": None,
                 "last_updated": time.strftime("%H:%M:%S")}
         else:
             a = self.accounts[uid]
@@ -114,16 +114,18 @@ async def handle_add_account(request):
         password = str(data.get("password", "")).strip()
         try: max_parallel = max(0, int(data.get("max_parallel_matches", 0)))
         except (TypeError, ValueError): max_parallel = 0
+        try: target_level = max(0, int(data.get("target_level", 0)))
+        except (TypeError, ValueError): target_level = 0
         if not uid or not password:
             return web.json_response({"status":"error", "error":"UID and Password are required"}, status=400)
         accounts = read_accounts()
         if any(str(a.get("uid", "")) == uid for a in accounts):
             return web.json_response({"status":"error", "error":"That UID is already added"}, status=409)
-        accounts.append({"uid": uid, "password": password, "max_parallel_matches": max_parallel})
+        accounts.append({"uid": uid, "password": password, "max_parallel_matches": max_parallel, "target_level": target_level})
         write_accounts(accounts)
         bot_state.log(f"Account {uid} added from dashboard", "success", uid)
         callback = bot_state.refresh_callbacks.get("on_account_added")
-        if callback: await callback({"uid": uid, "password": password, "max_parallel_matches": max_parallel})
+        if callback: await callback({"uid": uid, "password": password, "max_parallel_matches": max_parallel, "target_level": target_level})
         return web.json_response({"status":"ok"})
     except Exception as e:
         return web.json_response({"status":"error", "error":str(e)}, status=500)
@@ -188,6 +190,32 @@ async def handle_parallel_limit(request):
     except Exception as e:
         return web.json_response({"status":"error", "error":str(e)}, status=500)
 
+async def handle_target_level(request):
+    try:
+        data = await request.json()
+        requested = str(data.get("uid", "")).strip()
+        try: target = max(0, int(data.get("target_level", 0)))
+        except (TypeError, ValueError):
+            return web.json_response({"status":"error", "error":"Target level must be a non-negative integer"}, status=400)
+        login_uid = requested
+        for acc_id, credentials in list(bot_state.account_credentials.items()):
+            if acc_id == requested:
+                login_uid = str(credentials.get("uid", requested)); break
+        saved = read_accounts(); found = False
+        for account in saved:
+            if str(account.get("uid", "")) == login_uid:
+                account["target_level"] = target; found = True; break
+        if not found: return web.json_response({"status":"error", "error":"Account not found"}, status=404)
+        write_accounts(saved)
+        for acc_id, credentials in list(bot_state.account_credentials.items()):
+            if str(credentials.get("uid", "")) == login_uid or acc_id == requested:
+                if acc_id in bot_state.accounts: bot_state.accounts[acc_id]["target_level"] = target
+        if requested in bot_state.accounts: bot_state.accounts[requested]["target_level"] = target
+        bot_state.log(f"Target level for {login_uid} set to {target or 'disabled'}", "info", login_uid)
+        return web.json_response({"status":"ok", "target_level":target})
+    except Exception as e:
+        return web.json_response({"status":"error", "error":str(e)}, status=500)
+
 async def handle_refresh_account(request):
     try:
         data = await request.json(); requested = str(data.get("uid", "")).strip()
@@ -211,6 +239,7 @@ async def start_web_dashboard(host="0.0.0.0", port=20335):
     app.router.add_post("/api/account/delete", handle_delete_account)
     app.router.add_post("/api/account/refresh", handle_refresh_account)
     app.router.add_post("/api/account/parallel-limit", handle_parallel_limit)
+    app.router.add_post("/api/account/target-level", handle_target_level)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, host, port).start()

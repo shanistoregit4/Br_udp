@@ -988,6 +988,28 @@ async def play_game(server_ip_port, thunder, sharma, udp_key, match_code,
             try: sock.close()
             except Exception: pass
 
+# Dashboard-controlled graceful level stop. A target of 0 disables the watchdog.
+def _target_level_reached(uid):
+    account = bot_state.accounts.get(str(uid), {})
+    target = int(account.get("target_level", 0) or 0)
+    level = int(account.get("level", 0) or 0)
+    if target > 0 and level >= target:
+        account["level_stop_requested"] = True
+        return True
+    return bool(account.get("level_stop_requested", False))
+
+async def _wait_for_match_slot(uid, limit):
+    """Wait BEFORE a new search request is sent; zero means unlimited."""
+    while limit > 0:
+        if _target_level_reached(uid):
+            return
+        tasks = bot_state.match_tasks.setdefault(str(uid), set())
+        tasks.difference_update({task for task in tasks if task.done()})
+        if len(tasks) < limit:
+            return
+        bot_state.update_status(uid, "IN_MATCH", len(tasks))
+        await asyncio.sleep(0.5)
+
 # ==================== PERSISTENT TCP GATEWAY WITH AUTO IP-FAILOVER ====================
 async def functional_br(addrs, starter_packet, account_region, client_version,
                         key, iv, account_id="", account_data=None, max_parallel_matches=0):
@@ -1010,6 +1032,15 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
             bot_state.update_status(uid_str, "IN_MATCH" if remaining else "SEARCHING", remaining)
 
     while True:
+        if _target_level_reached(uid_str):
+            active = bot_state.match_tasks.get(uid_str, set())
+            active = {task for task in active if not task.done()}
+            bot_state.update_status(uid_str, "LEVEL TARGET REACHED" if not active else "IN_MATCH", len(active))
+            if active:
+                await asyncio.gather(*active, return_exceptions=True)
+            bot_state.update_status(uid_str, "LEVEL TARGET REACHED", 0)
+            bot_state.log(f"UID {uid_str}: target level reached; active matches completed and new searches stopped", "success", uid_str)
+            return
         writer = None
         gateway_ping_task = None
         current_proxy = proxy_pool.get_current()
@@ -1048,16 +1079,34 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
 
             async def send_start_match():
                 nonlocal search_attempts
+                if _target_level_reached(uid_str):
+                    return False
+                current_limit = int(bot_state.accounts.get(uid_str, {}).get("max_parallel_matches", max_parallel_matches) or 0)
+                await _wait_for_match_slot(uid_str, current_limit)
+                if _target_level_reached(uid_str):
+                    return False
                 search_attempts += 1
                 print_info(f"UID {uid_str} -> Match Search #{search_attempts} ({account_region})")
                 await start_game_battle_royale(account_region, client_version, writer, key, iv)
                 active = bot_state.match_tasks.get(uid_str, set())
                 bot_state.update_status(uid_str, "IN_MATCH" if any(not t.done() for t in active) else "SEARCHING", sum(not t.done() for t in active))
+                return True
 
-            await send_start_match()
+            if not await send_start_match():
+                try: writer.close(); await writer.wait_closed()
+                except Exception: pass
+                break
             last_start_time = asyncio.get_running_loop().time()
 
             while True:
+                if _target_level_reached(uid_str):
+                    try: writer.close(); await writer.wait_closed()
+                    except Exception: pass
+                    active = {t for t in bot_state.match_tasks.get(uid_str, set()) if not t.done()}
+                    if active: await asyncio.gather(*active, return_exceptions=True)
+                    bot_state.update_status(uid_str, "LEVEL TARGET REACHED", 0)
+                    bot_state.log(f"UID {uid_str}: target level reached; no further match searches", "success", uid_str)
+                    return
                 # 🛑 ऑटो-आईपी स्विचिंग ट्रिगर: अगर 10 बार में मैच न मिले तो तुरंत आईपी बदलो
                 if search_attempts >= MAX_SEARCHES_BEFORE_IP_SWITCH:
                     print_warning(f"[!] UID {uid_str} exceeded #{MAX_SEARCHES_BEFORE_IP_SWITCH} searches. Possible IP Shadow-Ban!")
@@ -1066,7 +1115,8 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
 
                 now = asyncio.get_running_loop().time()
                 if now - last_start_time >= START_MATCH_INTERVAL:
-                    await send_start_match()
+                    if not await send_start_match():
+                        break
                     last_start_time = now
 
                 try:
@@ -1173,7 +1223,9 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                             await writer.wait_closed()
                         except Exception:
                             pass
-                        await asyncio.sleep(NEW_MATCH_DELAY)
+                        # Instant fill-up: reconnect immediately after launching a match task.
+                        # The pre-search slot gate still enforces the configured parallel cap.
+                        await asyncio.sleep(0)
                         break
 
         except Exception as e:
@@ -1200,6 +1252,8 @@ async def refresh_account_profile(account_data: Dict):
             exp = int(get_proto_field(dict_res, 7, 0))
             acc_id = str(account_data['account_id'])
             if exp > 0: bot_state.update_exp(acc_id, exp, level)
+            if _target_level_reached(acc_id):
+                bot_state.log(f"UID {acc_id}: level target {bot_state.accounts.get(acc_id, {}).get('target_level')} reached", "success", acc_id)
             print_success(f"[EXP UPDATE] UID {acc_id} -> Level: {level} | EXP: {exp}")
     except Exception:
         pass
@@ -1235,9 +1289,13 @@ async def process_account_uid_pass(uid: str, password: str) -> Optional[Dict]:
 
         bot_state.register_account(uid=acc_id, nickname=nickname, region=region, level=level, exp=exp)
         try:
-            bot_state.accounts[acc_id]['max_parallel_matches'] = int(next((a.get('max_parallel_matches', 0) for a in load_accounts() if str(a.get('uid')) == str(uid)), 0) or 0)
+            saved_cfg = next((a for a in load_accounts() if str(a.get('uid')) == str(uid)), {})
+            bot_state.accounts[acc_id]['max_parallel_matches'] = int(saved_cfg.get('max_parallel_matches', 0) or 0)
+            bot_state.accounts[acc_id]['target_level'] = int(saved_cfg.get('target_level', 0) or 0)
+            bot_state.accounts[acc_id]['level_stop_requested'] = False
         except Exception:
             bot_state.accounts[acc_id]['max_parallel_matches'] = 0
+            bot_state.accounts[acc_id]['target_level'] = 0
         # Replace the temporary login-UID card once the real in-game account ID is known.
         if str(uid) != acc_id:
             bot_state.accounts.pop(str(uid), None)
@@ -1262,6 +1320,7 @@ async def process_account_uid_pass(uid: str, password: str) -> Optional[Dict]:
             'server_url': majorlogin_response.url,
             'login_payload_data': login_payload_data,
             'max_parallel_matches': int(next((a.get('max_parallel_matches', 0) for a in load_accounts() if str(a.get('uid')) == str(uid)), 0) or 0),
+            'target_level': int(next((a.get('target_level', 0) for a in load_accounts() if str(a.get('uid')) == str(uid)), 0) or 0),
         }
         print_success(f"Login OK | UID {acc_id} | {nickname} | Lvl {level} | Region: {region}")
         return account_data
