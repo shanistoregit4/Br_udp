@@ -390,6 +390,14 @@
                 </div>
                 <button class="btn btn-secondary" onclick="saveBatchSettings()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
             </div>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:0 18px 14px;">
+                <span class="panel-sub">DOWNLOAD LIST</span>
+                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=all" download><i class="fa-solid fa-download"></i> All</a>
+                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=done" download><i class="fa-solid fa-flag-checkered"></i> Target reached</a>
+                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=skipped" download><i class="fa-solid fa-forward"></i> Skipped</a>
+                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=pending" download><i class="fa-solid fa-hourglass-half"></i> Pending</a>
+                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=active" download><i class="fa-solid fa-play"></i> Active</a>
+            </div>
         </div>
 
         <div class="layout">
