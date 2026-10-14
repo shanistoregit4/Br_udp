@@ -226,6 +226,16 @@ async def handle_batch_settings(request):
     except Exception as e:
         return web.json_response({"status":"error", "error":str(e)}, status=500)
 
+async def handle_export_accounts(request):
+    """Download saved accounts as UID:PASSWORD lines. ?state=all|done|skipped|pending|active"""
+    state = request.query.get("state", "all").strip().lower()
+    if state not in ("all", "done", "skipped", "pending", "active"):
+        return web.json_response({"status":"error", "error":"Unknown state"}, status=400)
+    rows = [a for a in read_accounts() if state == "all" or str(a.get("batch_state", "")) == state]
+    text = "".join(f"{a.get('uid', '')}:{a.get('password', '')}\n" for a in rows)
+    return web.Response(text=text, content_type="text/plain", charset="utf-8",
+        headers={"Content-Disposition": f'attachment; filename="accounts_{state}.txt"'})
+
 async def handle_delete_account(request):
     try:
         data = await request.json(); requested = str(data.get("uid", "")).strip()
@@ -340,6 +350,7 @@ async def start_web_dashboard(host="0.0.0.0", port=20335):
     app.router.add_post("/api/account/target-level", handle_target_level)
     app.router.add_post("/api/account/bulk-add", handle_bulk_add)
     app.router.add_post("/api/batch/settings", handle_batch_settings)
+    app.router.add_get("/api/accounts/export", handle_export_accounts)
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, host, port).start()
