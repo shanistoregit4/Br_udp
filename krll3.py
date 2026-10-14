@@ -1030,6 +1030,16 @@ def _search_timeout_hit(uid):
         return True
     return False
 
+async def _finish_active_matches(uid, active):
+    """Normal accounts wait for running matches to finish. Bulk accounts have reached their target, so their
+    running matches are closed right away (bounded wait) to free the slot for the next queued account."""
+    if bot_state.accounts.get(str(uid), {}).get("batch"):
+        for task in active:
+            task.cancel()
+        await asyncio.wait(active, timeout=10)
+    else:
+        await asyncio.gather(*active, return_exceptions=True)
+
 async def _wait_for_match_slot(uid, limit):
     """Wait BEFORE a new search request is sent; zero means unlimited."""
     while limit > 0:
@@ -1069,7 +1079,7 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
             active = {task for task in active if not task.done()}
             bot_state.update_status(uid_str, "LEVEL TARGET REACHED" if not active else "IN_MATCH", len(active))
             if active:
-                await asyncio.gather(*active, return_exceptions=True)
+                await _finish_active_matches(uid_str, active)
             bot_state.update_status(uid_str, "LEVEL TARGET REACHED", 0)
             bot_state.log(f"UID {uid_str}: target level reached; active matches completed and new searches stopped", "success", uid_str)
             return
@@ -1139,7 +1149,7 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                     try: writer.close(); await writer.wait_closed()
                     except Exception: pass
                     active = {t for t in bot_state.match_tasks.get(uid_str, set()) if not t.done()}
-                    if active: await asyncio.gather(*active, return_exceptions=True)
+                    if active: await _finish_active_matches(uid_str, active)
                     bot_state.update_status(uid_str, "LEVEL TARGET REACHED", 0)
                     bot_state.log(f"UID {uid_str}: target level reached; no further match searches", "success", uid_str)
                     return
@@ -1420,6 +1430,7 @@ async def account_loop_guest(uid: str, password: str):
             finished_id = str(account_data['account_id'])
             if bot_state.accounts.get(finished_id, {}).get('batch'):
                 bot_state.batch_results[uid_str] = "done" if _target_level_reached(finished_id) else "skipped"
+                bot_state.update_status(finished_id, "DONE" if bot_state.batch_results[uid_str] == "done" else "SKIPPED", 0)
                 break
         except asyncio.CancelledError:
             bot_state.update_status(uid_str, "OFFLINE")
