@@ -13,6 +13,9 @@ ACCOUNTS_FILE = os.path.join(BASE_DIR, "accounts.json")
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates", "index.html")
 BATCH_SETTINGS_FILE = os.path.join(BASE_DIR, "batch_settings.json")
 
+VALID_STATES = ("done", "skipped", "pending", "active")
+
+
 class BotState:
     def __init__(self):
         self.accounts: Dict[str, Dict[str, Any]] = {}
@@ -40,7 +43,8 @@ class BotState:
         if uid not in self.accounts:
             self.accounts[uid] = {"uid": uid, "nickname": nickname or f"Player_{uid[:6]}", "region": region or "ME",
                 "level": level or 1, "initial_exp": exp, "current_exp": exp, "gained_exp": 0, "likes": likes or 0,
-                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "max_parallel_matches": 1, "target_level": 8, "level_stop_requested": False, "last_match_time": None,
+                "status": "ONLINE", "matches_played": 0, "active_matches": 0, "max_parallel_matches": 1,
+                "target_level": 8, "level_stop_requested": False, "last_match_time": None,
                 "last_updated": time.strftime("%H:%M:%S")}
         else:
             a = self.accounts[uid]
@@ -84,6 +88,7 @@ class BotState:
     def recalc_totals(self):
         self.total_gained_exp = sum(a.get("gained_exp", 0) for a in self.accounts.values())
 
+
 bot_state = BotState()
 
 
@@ -101,6 +106,7 @@ def write_accounts(accounts):
     with open(tmp, "w", encoding="utf-8") as f: json.dump(accounts, f, indent=2)
     os.replace(tmp, ACCOUNTS_FILE)
 
+
 def set_batch_state(login_uid, state):
     """Persist a bulk account's state (pending / active / done / skipped) into accounts.json."""
     saved = read_accounts()
@@ -109,6 +115,34 @@ def set_batch_state(login_uid, state):
             account["batch_state"] = state
             write_accounts(saved)
             return
+
+
+def account_state(saved):
+    """State of a saved account. Single-added accounts have no batch_state, so they count as active."""
+    s = str(saved.get("batch_state", ""))
+    return s if s in VALID_STATES else "active"
+
+
+def stop_runtime(login_uid, requested=None):
+    """Cancel workers/matches and clear in-memory state for one account (no file write)."""
+    if login_uid in bot_state.batch_queue:
+        bot_state.batch_queue.remove(login_uid)
+    bot_state.batch_active.discard(login_uid)
+    task = bot_state.account_workers.pop(login_uid, None)
+    if task and not task.done():
+        task.cancel()
+    account_ids = {acc_id for acc_id, c in list(bot_state.account_credentials.items())
+                   if str(c.get("uid", "")) == login_uid}
+    if requested:
+        account_ids.add(requested)
+    for acc_id in account_ids:
+        for match_task in list(bot_state.match_tasks.get(str(acc_id), set())):
+            if not match_task.done():
+                match_task.cancel()
+        bot_state.match_tasks.pop(str(acc_id), None)
+        bot_state.account_credentials.pop(str(acc_id), None)
+        bot_state.accounts.pop(str(acc_id), None)
+
 
 def load_batch_settings():
     try:
@@ -120,16 +154,19 @@ def load_batch_settings():
     except (OSError, ValueError, TypeError):
         pass
 
+
 def save_batch_settings():
     try:
         with open(BATCH_SETTINGS_FILE, "w", encoding="utf-8") as f: json.dump(bot_state.batch_settings, f)
     except OSError:
         pass
 
+
 load_batch_settings()
 
 # Accepts one account per line or a whole paragraph: "UID:PASSWORD", "UID PASSWORD", "UID|PASSWORD", "UID,PASSWORD".
 BULK_ACCOUNT_RE = re.compile(r"(\d{4,})[\s:|,;]+(\S+)")
+
 
 def parse_bulk_accounts(text):
     pairs, seen = [], set()
@@ -138,6 +175,7 @@ def parse_bulk_accounts(text):
         seen.add(uid); pairs.append((uid, password))
     return pairs
 
+
 async def handle_index(request):
     try:
         with open(TEMPLATE_PATH, "r", encoding="utf-8") as f: content = f.read()
@@ -145,18 +183,43 @@ async def handle_index(request):
         content = "<h1>Dashboard template missing: templates/index.html</h1>"
     return web.Response(text=content, content_type="text/html", charset="utf-8")
 
+
 def batch_summary():
     states = [str(a.get("batch_state", "")) for a in read_accounts() if a.get("batch")]
     return {"pending": len(bot_state.batch_queue), "active": len(bot_state.batch_active),
-        "done": states.count("done"), "skipped": states.count("skipped"),
-        "concurrency": bot_state.batch_settings.get("concurrency", 10),
-        "search_timeout_min": bot_state.batch_settings.get("search_timeout_min", 5)}
+            "done": states.count("done"), "skipped": states.count("skipped"),
+            "concurrency": bot_state.batch_settings.get("concurrency", 10),
+            "search_timeout_min": bot_state.batch_settings.get("search_timeout_min", 5)}
+
 
 async def handle_stats(request):
-    accounts = sorted(bot_state.accounts.values(), key=lambda a: a.get("gained_exp", 0), reverse=True)
-    return web.json_response({"total_accounts": len(read_accounts()), "total_matches": bot_state.total_matches,
-        "total_gained_exp": bot_state.total_gained_exp, "accounts": accounts, "logs": bot_state.logs[-60:],
+    saved_by_uid = {str(a.get("uid", "")): a for a in read_accounts()}
+    login_by_acc = {acc_id: str(c.get("uid", "")) for acc_id, c in bot_state.account_credentials.items()}
+    rows, seen = [], set()
+
+    for acc_id, a in bot_state.accounts.items():
+        login = login_by_acc.get(acc_id, acc_id)
+        seen.add(login)
+        saved = saved_by_uid.get(login)
+        rows.append({**a, "login_uid": login, "state": account_state(saved) if saved else "active"})
+
+    # Saved accounts with no live session (pending / skipped / done / stopped)
+    status_for = {"pending": "PENDING", "done": "DONE", "skipped": "SKIPPED", "active": "OFFLINE"}
+    for login, saved in saved_by_uid.items():
+        if login in seen:
+            continue
+        st = account_state(saved)
+        rows.append({"uid": login, "login_uid": login, "nickname": f"Player_{login[:6]}", "region": "--",
+                     "level": 0, "initial_exp": 0, "current_exp": 0, "gained_exp": 0, "matches_played": 0,
+                     "active_matches": 0, "max_parallel_matches": saved.get("max_parallel_matches", 1),
+                     "target_level": saved.get("target_level", 0), "status": status_for[st],
+                     "last_match_time": None, "state": st})
+
+    rows.sort(key=lambda a: a.get("gained_exp", 0), reverse=True)
+    return web.json_response({"total_accounts": len(saved_by_uid), "total_matches": bot_state.total_matches,
+        "total_gained_exp": bot_state.total_gained_exp, "accounts": rows, "logs": bot_state.logs[-60:],
         "uptime": int(time.time() - bot_state.start_time), "batch": batch_summary()})
+
 
 async def handle_add_account(request):
     try:
@@ -168,25 +231,26 @@ async def handle_add_account(request):
         try: target_level = max(0, int(data.get("target_level", 8)))
         except (TypeError, ValueError): target_level = 8
         if not uid or not password:
-            return web.json_response({"status":"error", "error":"UID and Password are required"}, status=400)
+            return web.json_response({"status": "error", "error": "UID and Password are required"}, status=400)
         accounts = read_accounts()
         if any(str(a.get("uid", "")) == uid for a in accounts):
-            return web.json_response({"status":"error", "error":"That UID is already added"}, status=409)
+            return web.json_response({"status": "error", "error": "That UID is already added"}, status=409)
         accounts.append({"uid": uid, "password": password, "max_parallel_matches": max_parallel, "target_level": target_level})
         write_accounts(accounts)
         bot_state.log(f"Account {uid} added from dashboard", "success", uid)
         callback = bot_state.refresh_callbacks.get("on_account_added")
         if callback: await callback({"uid": uid, "password": password, "max_parallel_matches": max_parallel, "target_level": target_level})
-        return web.json_response({"status":"ok"})
+        return web.json_response({"status": "ok"})
     except Exception as e:
-        return web.json_response({"status":"error", "error":str(e)}, status=500)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
 
 async def handle_bulk_add(request):
     try:
         data = await request.json()
         pairs = parse_bulk_accounts(str(data.get("text", "")))
         if not pairs:
-            return web.json_response({"status":"error", "error":"No UID/password pairs found in the pasted text"}, status=400)
+            return web.json_response({"status": "error", "error": "No UID/password pairs found in the pasted text"}, status=400)
         try: max_parallel = max(0, int(data.get("max_parallel_matches", 1)))
         except (TypeError, ValueError): max_parallel = 1
         try: target_level = max(0, int(data.get("target_level", 8)))
@@ -203,38 +267,41 @@ async def handle_bulk_add(request):
             if uid in existing:
                 duplicates += 1; continue
             accounts.append({"uid": uid, "password": password, "max_parallel_matches": max_parallel,
-                "target_level": target_level, "batch": True, "batch_state": "pending"})
+                             "target_level": target_level, "batch": True, "batch_state": "pending"})
             existing.add(uid); bot_state.batch_queue.append(uid); added += 1
         write_accounts(accounts)
         bot_state.log(f"Bulk add: {added} account(s) queued, {duplicates} duplicate(s) skipped | {bot_state.batch_settings['concurrency']} at once", "success")
-        return web.json_response({"status":"ok", "added":added, "duplicates":duplicates})
+        return web.json_response({"status": "ok", "added": added, "duplicates": duplicates})
     except Exception as e:
-        return web.json_response({"status":"error", "error":str(e)}, status=500)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
 
 async def handle_batch_settings(request):
     try:
         data = await request.json()
         try: bot_state.batch_settings["concurrency"] = max(1, int(data.get("concurrency", bot_state.batch_settings["concurrency"])))
         except (TypeError, ValueError):
-            return web.json_response({"status":"error", "error":"Accounts at once must be a whole number"}, status=400)
+            return web.json_response({"status": "error", "error": "Accounts at once must be a whole number"}, status=400)
         try: bot_state.batch_settings["search_timeout_min"] = max(0, float(data.get("search_timeout_min", bot_state.batch_settings["search_timeout_min"])))
         except (TypeError, ValueError):
-            return web.json_response({"status":"error", "error":"Search timeout must be a number"}, status=400)
+            return web.json_response({"status": "error", "error": "Search timeout must be a number"}, status=400)
         save_batch_settings()
         bot_state.log(f"Batch settings: {bot_state.batch_settings['concurrency']} at once, skip after {bot_state.batch_settings['search_timeout_min']:g} min without a match", "info")
-        return web.json_response({"status":"ok", **batch_summary()})
+        return web.json_response({"status": "ok", **batch_summary()})
     except Exception as e:
-        return web.json_response({"status":"error", "error":str(e)}, status=500)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
 
 async def handle_export_accounts(request):
     """Download saved accounts as UID:PASSWORD lines. ?state=all|done|skipped|pending|active"""
     state = request.query.get("state", "all").strip().lower()
-    if state not in ("all", "done", "skipped", "pending", "active"):
-        return web.json_response({"status":"error", "error":"Unknown state"}, status=400)
-    rows = [a for a in read_accounts() if state == "all" or str(a.get("batch_state", "")) == state]
+    if state != "all" and state not in VALID_STATES:
+        return web.json_response({"status": "error", "error": "Unknown state"}, status=400)
+    rows = [a for a in read_accounts() if state == "all" or account_state(a) == state]
     text = "".join(f"{a.get('uid', '')}:{a.get('password', '')}\n" for a in rows)
     return web.Response(text=text, content_type="text/plain", charset="utf-8",
-        headers={"Content-Disposition": f'attachment; filename="accounts_{state}.txt"'})
+                        headers={"Content-Disposition": f'attachment; filename="accounts_{state}.txt"'})
+
 
 async def handle_delete_account(request):
     try:
@@ -244,27 +311,34 @@ async def handle_delete_account(request):
         for acc_id, credentials in list(bot_state.account_credentials.items()):
             if acc_id == requested:
                 login_uid = str(credentials.get("uid", requested)); break
-        accounts = [a for a in read_accounts() if str(a.get("uid", "")) != login_uid]
-        write_accounts(accounts)
-        if login_uid in bot_state.batch_queue: bot_state.batch_queue.remove(login_uid)
-        bot_state.batch_active.discard(login_uid)
-        task = bot_state.account_workers.pop(login_uid, None)
-        if task and not task.done():
-            task.cancel()
-        # Cancel every detached UDP match task belonging to this account.
-        account_ids = [acc_id for acc_id, credentials in list(bot_state.account_credentials.items())
-                       if str(credentials.get("uid", "")) == login_uid or acc_id == requested]
-        account_ids.append(requested)
-        for acc_id in set(account_ids):
-            for match_task in list(bot_state.match_tasks.get(str(acc_id), set())):
-                if not match_task.done(): match_task.cancel()
-            bot_state.match_tasks.pop(str(acc_id), None)
-            bot_state.account_credentials.pop(str(acc_id), None)
-            bot_state.accounts.pop(str(acc_id), None)
+        write_accounts([a for a in read_accounts() if str(a.get("uid", "")) != login_uid])
+        stop_runtime(login_uid, requested)
         bot_state.log(f"Account {login_uid} removed from dashboard rotation", "warning", login_uid)
-        return web.json_response({"status":"ok"})
+        return web.json_response({"status": "ok"})
     except Exception as e:
-        return web.json_response({"status":"error", "error":str(e)}, status=500)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
+
+async def handle_remove_all(request):
+    """POST {state: all|active|pending|done|skipped} removes every saved account in that section."""
+    try:
+        data = await request.json()
+        state = str(data.get("state", "all")).strip().lower()
+        if state != "all" and state not in VALID_STATES:
+            return web.json_response({"status": "error", "error": "Unknown state"}, status=400)
+        saved = read_accounts()
+        targets = [str(a.get("uid", "")) for a in saved if state == "all" or account_state(a) == state]
+        if not targets:
+            return web.json_response({"status": "ok", "removed": 0})
+        target_set = set(targets)
+        write_accounts([a for a in saved if str(a.get("uid", "")) not in target_set])  # one write
+        for login_uid in targets:
+            stop_runtime(login_uid)
+        bot_state.log(f"Removed {len(targets)} account(s) from section: {state.upper()}", "warning")
+        return web.json_response({"status": "ok", "removed": len(targets)})
+    except Exception as e:
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
 
 async def handle_parallel_limit(request):
     try:
@@ -272,7 +346,7 @@ async def handle_parallel_limit(request):
         requested = str(data.get("uid", "")).strip()
         try: limit = max(0, int(data.get("max_parallel_matches", 0)))
         except (TypeError, ValueError):
-            return web.json_response({"status":"error", "error":"Limit must be a non-negative integer"}, status=400)
+            return web.json_response({"status": "error", "error": "Limit must be a non-negative integer"}, status=400)
         login_uid = requested
         for acc_id, credentials in list(bot_state.account_credentials.items()):
             if acc_id == requested:
@@ -285,7 +359,7 @@ async def handle_parallel_limit(request):
                 found = True
                 break
         if not found:
-            return web.json_response({"status":"error", "error":"Account not found"}, status=404)
+            return web.json_response({"status": "error", "error": "Account not found"}, status=404)
         write_accounts(saved)
         for acc_id, credentials in list(bot_state.account_credentials.items()):
             if str(credentials.get("uid", "")) == login_uid or acc_id == requested:
@@ -294,9 +368,10 @@ async def handle_parallel_limit(request):
         if requested in bot_state.accounts:
             bot_state.accounts[requested]["max_parallel_matches"] = limit
         bot_state.log(f"Parallel match limit for {login_uid} set to {'unlimited' if limit == 0 else limit}", "info", login_uid)
-        return web.json_response({"status":"ok", "max_parallel_matches":limit})
+        return web.json_response({"status": "ok", "max_parallel_matches": limit})
     except Exception as e:
-        return web.json_response({"status":"error", "error":str(e)}, status=500)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
 
 async def handle_target_level(request):
     try:
@@ -304,7 +379,7 @@ async def handle_target_level(request):
         requested = str(data.get("uid", "")).strip()
         try: target = max(0, int(data.get("target_level", 0)))
         except (TypeError, ValueError):
-            return web.json_response({"status":"error", "error":"Target level must be a non-negative integer"}, status=400)
+            return web.json_response({"status": "error", "error": "Target level must be a non-negative integer"}, status=400)
         login_uid = requested
         for acc_id, credentials in list(bot_state.account_credentials.items()):
             if acc_id == requested:
@@ -313,16 +388,17 @@ async def handle_target_level(request):
         for account in saved:
             if str(account.get("uid", "")) == login_uid:
                 account["target_level"] = target; found = True; break
-        if not found: return web.json_response({"status":"error", "error":"Account not found"}, status=404)
+        if not found: return web.json_response({"status": "error", "error": "Account not found"}, status=404)
         write_accounts(saved)
         for acc_id, credentials in list(bot_state.account_credentials.items()):
             if str(credentials.get("uid", "")) == login_uid or acc_id == requested:
                 if acc_id in bot_state.accounts: bot_state.accounts[acc_id]["target_level"] = target
         if requested in bot_state.accounts: bot_state.accounts[requested]["target_level"] = target
         bot_state.log(f"Target level for {login_uid} set to {target or 'disabled'}", "info", login_uid)
-        return web.json_response({"status":"ok", "target_level":target})
+        return web.json_response({"status": "ok", "target_level": target})
     except Exception as e:
-        return web.json_response({"status":"error", "error":str(e)}, status=500)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
 
 async def handle_refresh_account(request):
     try:
@@ -332,12 +408,13 @@ async def handle_refresh_account(request):
             if acc_id == requested:
                 login_uid = str(credentials.get("uid", requested)); break
         acc = next((a for a in read_accounts() if str(a.get("uid", "")) == login_uid), None)
-        if not acc: return web.json_response({"status":"error", "error":"Account not found"}, status=404)
+        if not acc: return web.json_response({"status": "error", "error": "Account not found"}, status=404)
         callback = bot_state.refresh_callbacks.get("on_account_added")
         if callback: await callback(acc)
-        return web.json_response({"status":"ok"})
+        return web.json_response({"status": "ok"})
     except Exception as e:
-        return web.json_response({"status":"error", "error":str(e)}, status=500)
+        return web.json_response({"status": "error", "error": str(e)}, status=500)
+
 
 async def start_web_dashboard(host="0.0.0.0", port=20335):
     app = web.Application()
@@ -349,6 +426,7 @@ async def start_web_dashboard(host="0.0.0.0", port=20335):
     app.router.add_post("/api/account/parallel-limit", handle_parallel_limit)
     app.router.add_post("/api/account/target-level", handle_target_level)
     app.router.add_post("/api/account/bulk-add", handle_bulk_add)
+    app.router.add_post("/api/accounts/remove-all", handle_remove_all)
     app.router.add_post("/api/batch/settings", handle_batch_settings)
     app.router.add_get("/api/accounts/export", handle_export_accounts)
     runner = web.AppRunner(app)
