@@ -1139,14 +1139,14 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                 return True
 
             if not await send_start_match():
-                try: writer.close(); await writer.wait_closed()
+                try: writer.close(); await asyncio.wait_for(writer.wait_closed(), timeout=3)
                 except Exception: pass
                 break
             last_start_time = asyncio.get_running_loop().time()
 
             while True:
                 if _target_level_reached(uid_str):
-                    try: writer.close(); await writer.wait_closed()
+                    try: writer.close(); await asyncio.wait_for(writer.wait_closed(), timeout=3)
                     except Exception: pass
                     active = {t for t in bot_state.match_tasks.get(uid_str, set()) if not t.done()}
                     if active: await _finish_active_matches(uid_str, active)
@@ -1233,7 +1233,7 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                             print_info(f"UID {uid_str}: parallel limit {configured_limit} reached; waiting for a match slot")
                             try:
                                 writer.close()
-                                await writer.wait_closed()
+                                await asyncio.wait_for(writer.wait_closed(), timeout=3)
                             except Exception:
                                 pass
                             await asyncio.sleep(NEW_MATCH_DELAY)
@@ -1268,7 +1268,7 @@ async def functional_br(addrs, starter_packet, account_region, client_version,
                         # while the UDP match continues independently in the background.
                         try:
                             writer.close()
-                            await writer.wait_closed()
+                            await asyncio.wait_for(writer.wait_closed(), timeout=3)
                         except Exception:
                             pass
                         # Instant fill-up: reconnect immediately after launching a match task.
@@ -1473,11 +1473,34 @@ async def start_dashboard_account(account):
 async def batch_scheduler():
     """Rolling batch runner: keeps up to N bulk accounts working at once and refills a slot the moment
     an account reaches its target level or is skipped, without waiting for the other accounts."""
+    reached_since = {}
     while True:
         try:
+            # Watchdog: if a bulk account is already at its target level but its worker has not ended
+            # within 20s (stuck on a network close, etc.), force it closed so the slot is never blocked.
             for uid in list(bot_state.batch_active):
                 task = bot_state.account_workers.get(uid)
                 if task is None or task.done():
+                    reached_since.pop(uid, None)
+                    continue
+                card_ids = [acc_id for acc_id, cred in list(bot_state.account_credentials.items()) if str(cred.get("uid", "")) == uid]
+                reached = [acc_id for acc_id in card_ids if _target_level_reached(acc_id)]
+                if not reached:
+                    reached_since.pop(uid, None)
+                    continue
+                first_seen = reached_since.setdefault(uid, time.time())
+                if time.time() - first_seen >= 20:
+                    reached_since.pop(uid, None)
+                    for acc_id in reached:
+                        for match_task in list(bot_state.match_tasks.get(acc_id, set())):
+                            match_task.cancel()
+                        bot_state.update_status(acc_id, "DONE", 0)
+                    bot_state.batch_results[uid] = "done"
+                    task.cancel()
+                    bot_state.log(f"Batch: {uid} reached target level but was still open; closed it", "warning", uid)
+            for uid in list(bot_state.batch_active):
+                task = bot_state.account_workers.get(uid)
+                if uid in bot_state.batch_results or task is None or task.done():
                     bot_state.batch_active.discard(uid)
                     result = bot_state.batch_results.pop(uid, None)
                     if result:
