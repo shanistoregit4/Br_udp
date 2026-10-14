@@ -1,720 +1,462 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AGS COMMUNITY | Free Fire Level Up Control Panel</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        :root {
-            --bg-deep: #0a0f1a;
-            --bg-panel: rgba(17, 24, 39, 0.72);
-            --bg-panel-hover: rgba(22, 32, 52, 0.88);
-            --border-soft: rgba(59, 130, 246, 0.14);
-            --border-strong: rgba(59, 130, 246, 0.42);
-            --accent-primary: #3b82f6;
-            --accent-secondary: #10b981;
-            --accent-highlight: #8b5cf6;
-            --accent-warn: #f59e0b;
-            --accent-danger: #ef4444;
-            --text-primary: #e5eaf3;
-            --text-dim: #94a3b8;
-            --text-faint: #64748b;
-            --shadow-glow: 0 10px 40px -12px rgba(59, 130, 246, 0.28);
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Space Grotesk', sans-serif; }
-        body {
-            background-color: var(--bg-deep);
-            background-image:
-                radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.10) 0%, transparent 50%),
-                radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.10) 0%, transparent 50%),
-                radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.05) 0%, transparent 60%),
-                linear-gradient(160deg, #0a0f1a 0%, #0d1424 100%);
-            color: var(--text-primary);
-            min-height: 100vh;
-            padding: 24px;
-            overflow-x: hidden;
-        }
-        .container { max-width: 1440px; margin: 0 auto; }
-        header {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 22px 28px; background: var(--bg-panel);
-            border: 1px solid var(--border-soft); border-radius: 24px;
-            backdrop-filter: blur(18px); box-shadow: var(--shadow-glow);
-            margin-bottom: 24px; position: relative; overflow: hidden;
-            flex-wrap: wrap; gap: 14px;
-        }
-        header::before {
-            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-            background: linear-gradient(90deg, transparent, var(--accent-primary), var(--accent-secondary), transparent);
-            opacity: 0.6;
-        }
-        .brand { display: flex; align-items: center; gap: 18px; position: relative; z-index: 1; }
-        .logo-wrap {
-            width: 56px; height: 56px;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-highlight));
-            border-radius: 16px; display: flex; align-items: center; justify-content: center;
-            font-size: 24px; color: #fff;
-            box-shadow: 0 8px 24px -6px rgba(59, 130, 246, 0.5);
-            position: relative;
-        }
-        .logo-wrap::after {
-            content: ''; position: absolute; inset: -3px; border-radius: 18px;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-highlight));
-            opacity: 0.25; filter: blur(8px); z-index: -1;
-        }
-        .brand-text h1 {
-            font-size: 23px; font-weight: 700; letter-spacing: -0.5px;
-            background: linear-gradient(90deg, #f0f4fc, var(--accent-primary));
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            background-clip: text; display: flex; align-items: center; gap: 10px;
-        }
-        .brand-text .credit {
-            font-size: 11px; font-weight: 600; letter-spacing: 2px;
-            text-transform: uppercase; color: var(--accent-secondary);
-            margin-top: 4px; font-family: 'JetBrains Mono', monospace;
-        }
-        .live-pill {
-            display: inline-flex; align-items: center; gap: 6px;
-            background: rgba(16, 185, 129, 0.12);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            color: var(--accent-secondary);
-            padding: 3px 11px; border-radius: 20px;
-            font-size: 11px; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.5px; font-family: 'JetBrains Mono', monospace;
-        }
-        .live-dot {
-            width: 6px; height: 6px; background: var(--accent-secondary);
-            border-radius: 50%; animation: blink 1.4s infinite;
-            box-shadow: 0 0 8px var(--accent-secondary);
-        }
-        @keyframes blink {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.4; transform: scale(0.75); }
-        }
-        .header-actions { display: flex; align-items: center; gap: 10px; position: relative; z-index: 1; flex-wrap: wrap; }
-        .btn {
-            display: inline-flex; align-items: center; gap: 8px;
-            padding: 10px 18px; border-radius: 12px;
-            font-size: 14px; font-weight: 600; cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-            border: none; outline: none; font-family: 'Space Grotesk', sans-serif;
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-highlight));
-            color: #fff; box-shadow: 0 6px 20px -6px rgba(59, 130, 246, 0.5);
-        }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 26px -6px rgba(59, 130, 246, 0.7); }
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-soft); color: var(--text-primary);
-        }
-        .btn-secondary:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--border-strong); }
-
-        /* MODE SWITCH */
-        .mode-switch {
-            display: inline-flex;
-            background: rgba(0, 0, 0, 0.35);
-            border: 1px solid var(--border-soft);
-            border-radius: 12px;
-            padding: 3px;
-            gap: 2px;
-            margin-right: 4px;
-        }
-        .mode-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-dim);
-            padding: 7px 16px;
-            border-radius: 9px;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            font-family: 'JetBrains Mono', monospace;
-            letter-spacing: 0.5px;
-            transition: all 0.2s ease;
-        }
-        .mode-btn:hover { color: var(--text-primary); }
-        .mode-btn.active {
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-highlight));
-            color: #fff;
-            box-shadow: 0 4px 14px -4px rgba(59, 130, 246, 0.6);
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-            gap: 18px; margin-bottom: 24px;
-        }
-        .stat-card {
-            background: var(--bg-panel); border: 1px solid var(--border-soft);
-            border-radius: 20px; padding: 22px; backdrop-filter: blur(14px);
-            display: flex; align-items: center; gap: 18px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative; overflow: hidden;
-        }
-        .stat-card::after {
-            content: ''; position: absolute; bottom: 0; left: 0; right: 0;
-            height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent);
-            opacity: 0; transition: opacity 0.3s;
-        }
-        .stat-card:hover::after { opacity: 1; }
-        .stat-card:hover { border-color: var(--border-strong); transform: translateY(-4px); box-shadow: var(--shadow-glow); }
-        .stat-icon {
-            width: 56px; height: 56px; border-radius: 16px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 22px; flex-shrink: 0;
-        }
-        .ic-blue { background: rgba(59, 130, 246, 0.14); color: var(--accent-primary); }
-        .ic-green { background: rgba(16, 185, 129, 0.14); color: var(--accent-secondary); }
-        .ic-purple { background: rgba(139, 92, 246, 0.14); color: var(--accent-highlight); }
-        .ic-amber { background: rgba(245, 158, 11, 0.14); color: var(--accent-warn); }
-        .stat-body h3 { font-size: 26px; font-weight: 700; letter-spacing: -0.6px; color: #fff; font-family: 'JetBrains Mono', monospace; }
-        .stat-body p { font-size: 12px; color: var(--text-dim); font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; }
-        .layout { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
-        @media (max-width: 1024px) { .layout { grid-template-columns: 1fr; } }
-        .panel {
-            background: var(--bg-panel); border: 1px solid var(--border-soft);
-            border-radius: 22px; padding: 24px; backdrop-filter: blur(16px);
-        }
-        .panel-head {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 20px; padding-bottom: 16px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .panel-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 10px; letter-spacing: -0.2px; }
-        .panel-sub { font-size: 11px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; }
-        .acc-list { display: flex; flex-direction: column; gap: 14px; max-height: 620px; overflow-y: auto; padding-right: 4px; }
-        .acc-list::-webkit-scrollbar { width: 5px; }
-        .acc-list::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.25); border-radius: 3px; }
-        .acc-card {
-            background: rgba(10, 15, 28, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 16px; padding: 18px 20px;
-            transition: all 0.25s ease; position: relative;
-        }
-        .acc-card:hover { background: var(--bg-panel-hover); border-color: var(--border-strong); }
-        .acc-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-        .acc-id { display: flex; align-items: center; gap: 14px; }
-        .acc-avatar {
-            width: 46px; height: 46px; border-radius: 13px;
-            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 700; font-size: 17px; color: var(--accent-primary);
-            border: 1px solid rgba(59, 130, 246, 0.25);
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .acc-meta h4 { font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
-        .region-tag {
-            background: rgba(255, 255, 255, 0.07); color: #a5b4fc;
-            padding: 2px 8px; border-radius: 6px; font-size: 10px;
-            font-weight: 700; letter-spacing: 0.5px;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .acc-meta span { font-size: 12px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
-        .acc-status {
-            display: flex; align-items: center; gap: 6px;
-            font-size: 11px; font-weight: 700; padding: 5px 12px;
-            border-radius: 20px; font-family: 'JetBrains Mono', monospace;
-            letter-spacing: 0.3px; text-transform: uppercase;
-        }
-        .st-online { background: rgba(16, 185, 129, 0.12); color: var(--accent-secondary); border: 1px solid rgba(16, 185, 129, 0.25); }
-        .st-match  { background: rgba(59, 130, 246, 0.14); color: var(--accent-primary); border: 1px solid rgba(59, 130, 246, 0.4); animation: pulse-b 1.6s infinite alternate; }
-        .st-idle   { background: rgba(148, 163, 184, 0.12); color: var(--text-dim); border: 1px solid rgba(148, 163, 184, 0.25); }
-        .st-error  { background: rgba(239, 68, 68, 0.12); color: var(--accent-danger); border: 1px solid rgba(239, 68, 68, 0.3); }
-        .st-search { background: rgba(139, 92, 246, 0.14); color: var(--accent-highlight); border: 1px solid rgba(139, 92, 246, 0.4); animation: pulse-p 1.6s infinite alternate; }
-        @keyframes pulse-b {
-            0% { border-color: rgba(59, 130, 246, 0.3); }
-            100% { border-color: rgba(59, 130, 246, 0.85); }
-        }
-        @keyframes pulse-p {
-            0% { border-color: rgba(139, 92, 246, 0.3); }
-            100% { border-color: rgba(139, 92, 246, 0.85); }
-        }
-        .exp-row {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
-            background: rgba(0, 0, 0, 0.3); padding: 12px 16px;
-            border-radius: 12px; margin-bottom: 14px;
-        }
-        .exp-cell { display: flex; flex-direction: column; gap: 3px; }
-        .exp-lbl { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-        .exp-val { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: #fff; }
-        .gain-chip {
-            background: rgba(16, 185, 129, 0.16); color: var(--accent-secondary);
-            padding: 3px 9px; border-radius: 7px; font-size: 13px;
-            font-weight: 700; display: inline-block;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .prog-wrap { margin-bottom: 14px; }
-        .prog-lbl { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; font-weight: 600; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px; }
-        .prog-bg { height: 6px; background: rgba(255, 255, 255, 0.07); border-radius: 10px; overflow: hidden; }
-        .prog-fill {
-            height: 100%; background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
-            border-radius: 10px; transition: width 0.6s ease;
-            box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
-        }
-        .acc-foot {
-            display: flex; align-items: center; justify-content: space-between;
-            padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.05);
-            font-size: 12px; color: var(--text-faint);
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .foot-actions { display: flex; gap: 8px; }
-        .ib {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-soft); color: var(--text-dim);
-            width: 32px; height: 32px; border-radius: 9px;
-            display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: all 0.2s ease;
-        }
-        .ib:hover { background: rgba(59, 130, 246, 0.15); color: var(--accent-primary); border-color: var(--accent-primary); }
-        .ib.danger:hover { background: rgba(239, 68, 68, 0.15); color: var(--accent-danger); border-color: var(--accent-danger); }
-        .log-wrap { display: flex; flex-direction: column; height: 100%; }
-        .log-stream {
-            flex: 1; min-height: 520px; max-height: 640px;
-            background: #04070f; border: 1px solid rgba(59, 130, 246, 0.08);
-            border-radius: 14px; padding: 14px;
-            font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
-            overflow-y: auto; display: flex; flex-direction: column;
-            gap: 6px; line-height: 1.5;
-        }
-        .log-stream::-webkit-scrollbar { width: 5px; }
-        .log-stream::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.3); border-radius: 3px; }
-        .log-item { word-break: break-all; }
-        .log-t { color: #475569; margin-right: 6px; }
-        .log-info    { color: #60a5fa; }
-        .log-success { color: #34d399; }
-        .log-warning { color: #fbbf24; }
-        .log-error   { color: #f87171; }
-        .modal-bg {
-            position: fixed; inset: 0; background: rgba(4, 7, 15, 0.85);
-            backdrop-filter: blur(10px); display: none;
-            align-items: center; justify-content: center; z-index: 100; padding: 20px;
-        }
-        .modal-bg.on { display: flex; }
-        .modal {
-            background: #0d1424; border: 1px solid var(--border-strong);
-            border-radius: 22px; width: 100%; max-width: 480px;
-            padding: 28px; box-shadow: 0 20px 60px -12px rgba(59, 130, 246, 0.35);
-            animation: modalIn 0.25s ease;
-        }
-        @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
-        .modal-head h3 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-        .field { margin-bottom: 16px; }
-        .field label {
-            display: block; font-size: 12px; font-weight: 600;
-            color: var(--text-dim); margin-bottom: 7px;
-            letter-spacing: 0.3px; text-transform: uppercase;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .input {
-            width: 100%; background: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 11px; padding: 11px 15px;
-            color: #fff; font-size: 14px; outline: none;
-            transition: border-color 0.2s;
-            font-family: 'Space Grotesk', sans-serif;
-        }
-        .input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-        .empty { text-align: center; padding: 50px 20px; color: var(--text-faint); }
-        .empty i { font-size: 46px; margin-bottom: 14px; color: rgba(59, 130, 246, 0.15); }
-        .empty p { font-size: 14px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGS COMMUNITY | Free Fire Level Up Control Panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+:root{--bg-deep:#0a0f1a;--bg-panel:rgba(17,24,39,.72);--bg-panel-hover:rgba(22,32,52,.88);--border-soft:rgba(59,130,246,.14);--border-strong:rgba(59,130,246,.42);--accent-primary:#3b82f6;--accent-secondary:#10b981;--accent-highlight:#8b5cf6;--accent-warn:#f59e0b;--accent-danger:#ef4444;--text-primary:#e5eaf3;--text-dim:#94a3b8;--text-faint:#64748b;--shadow-glow:0 10px 40px -12px rgba(59,130,246,.28)}
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Space Grotesk',sans-serif}
+body{background-color:var(--bg-deep);background-image:radial-gradient(circle at 0% 0%,rgba(59,130,246,.10) 0%,transparent 50%),radial-gradient(circle at 100% 100%,rgba(16,185,129,.10) 0%,transparent 50%),radial-gradient(circle at 50% 50%,rgba(139,92,246,.05) 0%,transparent 60%),linear-gradient(160deg,#0a0f1a 0%,#0d1424 100%);color:var(--text-primary);min-height:100vh;padding:24px;overflow-x:hidden}
+.container{max-width:1440px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;padding:22px 28px;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:24px;backdrop-filter:blur(18px);box-shadow:var(--shadow-glow);margin-bottom:24px;position:relative;overflow:hidden;flex-wrap:wrap;gap:14px}
+header::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent-primary),var(--accent-secondary),transparent);opacity:.6}
+.brand{display:flex;align-items:center;gap:18px;position:relative;z-index:1}
+.logo-wrap{width:56px;height:56px;background:linear-gradient(135deg,var(--accent-primary),var(--accent-highlight));border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:24px;color:#fff;box-shadow:0 8px 24px -6px rgba(59,130,246,.5);position:relative}
+.logo-wrap::after{content:'';position:absolute;inset:-3px;border-radius:18px;background:linear-gradient(135deg,var(--accent-primary),var(--accent-highlight));opacity:.25;filter:blur(8px);z-index:-1}
+.brand-text h1{font-size:23px;font-weight:700;letter-spacing:-.5px;background:linear-gradient(90deg,#f0f4fc,var(--accent-primary));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;display:flex;align-items:center;gap:10px}
+.brand-text .credit{font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--accent-secondary);margin-top:4px;font-family:'JetBrains Mono',monospace}
+.live-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:var(--accent-secondary);padding:3px 11px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-family:'JetBrains Mono',monospace}
+.live-dot{width:6px;height:6px;background:var(--accent-secondary);border-radius:50%;animation:blink 1.4s infinite;box-shadow:0 0 8px var(--accent-secondary)}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.75)}}
+.header-actions{display:flex;align-items:center;gap:10px;position:relative;z-index:1;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:all .25s cubic-bezier(.4,0,.2,1);border:none;outline:none;font-family:'Space Grotesk',sans-serif}
+.btn-primary{background:linear-gradient(135deg,var(--accent-primary),var(--accent-highlight));color:#fff;box-shadow:0 6px 20px -6px rgba(59,130,246,.5)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 10px 26px -6px rgba(59,130,246,.7)}
+.btn-secondary{background:rgba(255,255,255,.05);border:1px solid var(--border-soft);color:var(--text-primary)}
+.btn-secondary:hover{background:rgba(255,255,255,.09);border-color:var(--border-strong)}
+.btn-danger{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:var(--accent-danger)}
+.btn-danger:hover{background:rgba(239,68,68,.22)}
+.btn-sm{padding:7px 12px;font-size:12px;border-radius:10px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;margin-bottom:24px}
+.stat-card{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:20px;padding:22px;backdrop-filter:blur(14px);display:flex;align-items:center;gap:18px;transition:all .3s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden}
+.stat-card:hover{border-color:var(--border-strong);transform:translateY(-4px);box-shadow:var(--shadow-glow)}
+.stat-icon{width:56px;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.ic-blue{background:rgba(59,130,246,.14);color:var(--accent-primary)}
+.ic-green{background:rgba(16,185,129,.14);color:var(--accent-secondary)}
+.ic-purple{background:rgba(139,92,246,.14);color:var(--accent-highlight)}
+.ic-amber{background:rgba(245,158,11,.14);color:var(--accent-warn)}
+.stat-body h3{font-size:26px;font-weight:700;letter-spacing:-.6px;color:#fff;font-family:'JetBrains Mono',monospace}
+.stat-body p{font-size:12px;color:var(--text-dim);font-weight:500;letter-spacing:.3px;text-transform:uppercase}
+.layout{display:grid;grid-template-columns:2fr 1fr;gap:24px}
+@media(max-width:1024px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:22px;padding:24px;backdrop-filter:blur(16px)}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.05)}
+.panel-title{font-size:16px;font-weight:700;display:flex;align-items:center;gap:10px;letter-spacing:-.2px}
+.panel-sub{font-size:11px;color:var(--text-faint);font-family:'JetBrains Mono',monospace;letter-spacing:.5px}
+/* Section tabs */
+.tabs{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:16px}
+.tab{background:rgba(255,255,255,.05);border:1px solid var(--border-soft);color:var(--text-dim);padding:7px 14px;border-radius:10px;font:700 12px 'JetBrains Mono',monospace;cursor:pointer;transition:all .2s}
+.tab:hover{color:var(--text-primary)}
+.tab.active{background:linear-gradient(135deg,var(--accent-primary),var(--accent-highlight));color:#fff;border-color:transparent}
+.tab .n{opacity:.7;margin-left:6px}
+.tab-spacer{flex:1}
+.acc-list{display:flex;flex-direction:column;gap:14px;max-height:620px;overflow-y:auto;padding-right:4px}
+.acc-list::-webkit-scrollbar{width:5px}
+.acc-list::-webkit-scrollbar-thumb{background:rgba(59,130,246,.25);border-radius:3px}
+.acc-card{background:rgba(10,15,28,.7);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:18px 20px;transition:all .25s ease;position:relative}
+.acc-card:hover{background:var(--bg-panel-hover);border-color:var(--border-strong)}
+.acc-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.acc-id{display:flex;align-items:center;gap:14px}
+.acc-avatar{width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,rgba(59,130,246,.2),rgba(139,92,246,.2));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:var(--accent-primary);border:1px solid rgba(59,130,246,.25);font-family:'JetBrains Mono',monospace}
+.acc-meta h4{font-size:15px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px}
+.region-tag{background:rgba(255,255,255,.07);color:#a5b4fc;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;letter-spacing:.5px;font-family:'JetBrains Mono',monospace}
+.acc-meta span{font-size:12px;color:var(--text-faint);font-family:'JetBrains Mono',monospace}
+.acc-status{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:5px 12px;border-radius:20px;font-family:'JetBrains Mono',monospace;letter-spacing:.3px;text-transform:uppercase}
+.st-online{background:rgba(16,185,129,.12);color:var(--accent-secondary);border:1px solid rgba(16,185,129,.25)}
+.st-match{background:rgba(59,130,246,.14);color:var(--accent-primary);border:1px solid rgba(59,130,246,.4);animation:pulse-b 1.6s infinite alternate}
+.st-idle{background:rgba(148,163,184,.12);color:var(--text-dim);border:1px solid rgba(148,163,184,.25)}
+.st-error{background:rgba(239,68,68,.12);color:var(--accent-danger);border:1px solid rgba(239,68,68,.3)}
+.st-search{background:rgba(139,92,246,.14);color:var(--accent-highlight);border:1px solid rgba(139,92,246,.4);animation:pulse-p 1.6s infinite alternate}
+@keyframes pulse-b{0%{border-color:rgba(59,130,246,.3)}100%{border-color:rgba(59,130,246,.85)}}
+@keyframes pulse-p{0%{border-color:rgba(139,92,246,.3)}100%{border-color:rgba(139,92,246,.85)}}
+.exp-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;background:rgba(0,0,0,.3);padding:12px 16px;border-radius:12px;margin-bottom:14px}
+.exp-cell{display:flex;flex-direction:column;gap:3px}
+.exp-lbl{font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.exp-val{font-size:15px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#fff}
+.gain-chip{background:rgba(16,185,129,.16);color:var(--accent-secondary);padding:3px 9px;border-radius:7px;font-size:13px;font-weight:700;display:inline-block;font-family:'JetBrains Mono',monospace}
+.prog-wrap{margin-bottom:14px}
+.prog-lbl{display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:.3px}
+.prog-bg{height:6px;background:rgba(255,255,255,.07);border-radius:10px;overflow:hidden}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--accent-primary),var(--accent-secondary));border-radius:10px;transition:width .6s ease;box-shadow:0 0 12px rgba(59,130,246,.4)}
+.acc-foot{display:flex;align-items:center;justify-content:space-between;padding-top:12px;border-top:1px solid rgba(255,255,255,.05);font-size:12px;color:var(--text-faint);font-family:'JetBrains Mono',monospace}
+.foot-actions{display:flex;gap:8px}
+.ib{background:rgba(255,255,255,.05);border:1px solid var(--border-soft);color:var(--text-dim);width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s ease}
+.ib:hover{background:rgba(59,130,246,.15);color:var(--accent-primary);border-color:var(--accent-primary)}
+.ib.danger:hover{background:rgba(239,68,68,.15);color:var(--accent-danger);border-color:var(--accent-danger)}
+.log-wrap{display:flex;flex-direction:column;height:100%}
+.log-stream{flex:1;min-height:520px;max-height:640px;background:#04070f;border:1px solid rgba(59,130,246,.08);border-radius:14px;padding:14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;line-height:1.5}
+.log-stream::-webkit-scrollbar{width:5px}
+.log-stream::-webkit-scrollbar-thumb{background:rgba(59,130,246,.3);border-radius:3px}
+.log-item{word-break:break-all}
+.log-t{color:#475569;margin-right:6px}
+.log-info{color:#60a5fa}.log-success{color:#34d399}.log-warning{color:#fbbf24}.log-error{color:#f87171}
+.modal-bg{position:fixed;inset:0;background:rgba(4,7,15,.85);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal-bg.on{display:flex}
+.modal{background:#0d1424;border:1px solid var(--border-strong);border-radius:22px;width:100%;max-width:480px;padding:28px;box-shadow:0 20px 60px -12px rgba(59,130,246,.35);animation:modalIn .25s ease}
+@keyframes modalIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
+.modal-head h3{font-size:18px;font-weight:700;letter-spacing:-.3px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:7px;letter-spacing:.3px;text-transform:uppercase;font-family:'JetBrains Mono',monospace}
+.input{width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:11px;padding:11px 15px;color:#fff;font-size:14px;outline:none;transition:border-color .2s;font-family:'Space Grotesk',sans-serif}
+.input:focus{border-color:var(--accent-primary);box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+.empty{text-align:center;padding:50px 20px;color:var(--text-faint)}
+.empty i{font-size:46px;margin-bottom:14px;color:rgba(59,130,246,.15)}
+.empty p{font-size:14px}
+</style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <div class="brand">
-                <div class="logo-wrap"><i class="fa-solid fa-bolt"></i></div>
-                <div class="brand-text">
-                    <h1>Level Up Control <span style="font-weight:400; color:var(--text-faint); font-size:15px;">| AGS Engine</span></h1>
-                    <div class="credit">Powered by AGS COMMUNITY</div>
-                </div>
-            </div>
-            <div class="header-actions">
-                <span class="live-pill"><span class="live-dot"></span> Live</span>
-                <button class="btn btn-secondary" onclick="fetchStats()"><i class="fa-solid fa-rotate"></i> Refresh</button>
-                <button class="btn btn-secondary" onclick="openBulk()"><i class="fa-solid fa-list"></i> Bulk Add</button>
-                <button class="btn btn-primary" onclick="openAdd()"><i class="fa-solid fa-plus"></i> Add Account</button>
-            </div>
-        </header>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon ic-blue"><i class="fa-solid fa-users"></i></div>
-                <div class="stat-body">
-                    <h3 id="s-acc">0</h3>
-                    <p>Active Accounts</p>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon ic-green"><i class="fa-solid fa-angles-up"></i></div>
-                <div class="stat-body">
-                    <h3 id="s-exp" style="color:var(--accent-secondary)">+0</h3>
-                    <p>Total EXP Gained</p>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon ic-purple"><i class="fa-solid fa-gamepad"></i></div>
-                <div class="stat-body">
-                    <h3 id="s-match">0</h3>
-                    <p>Matches Completed</p>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon ic-amber"><i class="fa-solid fa-clock"></i></div>
-                <div class="stat-body">
-                    <h3 id="s-uptime" style="color:var(--accent-warn)">00:00:00</h3>
-                    <p>Dashboard Uptime</p>
-                </div>
-            </div>
+<div class="container">
+<header>
+    <div class="brand">
+        <div class="logo-wrap"><i class="fa-solid fa-bolt"></i></div>
+        <div class="brand-text">
+            <h1>Level Up Control <span style="font-weight:400;color:var(--text-faint);font-size:15px;">| AGS Engine</span></h1>
+            <div class="credit">Powered by AGS COMMUNITY</div>
         </div>
+    </div>
+    <div class="header-actions">
+        <span class="live-pill"><span class="live-dot"></span> Live</span>
+        <button class="btn btn-secondary" onclick="fetchStats()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        <button class="btn btn-secondary" onclick="openBulk()"><i class="fa-solid fa-list"></i> Bulk Add</button>
+        <button class="btn btn-primary" onclick="openAdd()"><i class="fa-solid fa-plus"></i> Add Account</button>
+    </div>
+</header>
 
-        <div class="panel" id="batch-panel" style="margin-bottom:18px; display:none;">
-            <div class="panel-head">
-                <div class="panel-title"><i class="fa-solid fa-layer-group" style="color:var(--accent-primary)"></i> Bulk Queue</div>
-                <span class="panel-sub" id="batch-summary">--</span>
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; padding:14px 18px;">
-                <div class="field" style="margin:0;">
-                    <label>Accounts at once</label>
-                    <input type="number" min="1" step="1" class="input" id="batch-concurrency" value="10" style="max-width:120px;">
-                </div>
-                <div class="field" style="margin:0;">
-                    <label>Skip if no match in (min, 0 = never)</label>
-                    <input type="number" min="0" step="1" class="input" id="batch-timeout" value="5" style="max-width:120px;">
-                </div>
-                <button class="btn btn-secondary" onclick="saveBatchSettings()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:0 18px 14px;">
-                <span class="panel-sub">DOWNLOAD LIST</span>
-                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=all" download><i class="fa-solid fa-download"></i> All</a>
-                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=done" download><i class="fa-solid fa-flag-checkered"></i> Target reached</a>
-                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=skipped" download><i class="fa-solid fa-forward"></i> Skipped</a>
-                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=pending" download><i class="fa-solid fa-hourglass-half"></i> Pending</a>
-                <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=active" download><i class="fa-solid fa-play"></i> Active</a>
-            </div>
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-icon ic-blue"><i class="fa-solid fa-users"></i></div><div class="stat-body"><h3 id="s-acc">0</h3><p>Active Accounts</p></div></div>
+    <div class="stat-card"><div class="stat-icon ic-green"><i class="fa-solid fa-angles-up"></i></div><div class="stat-body"><h3 id="s-exp" style="color:var(--accent-secondary)">+0</h3><p>Total EXP Gained</p></div></div>
+    <div class="stat-card"><div class="stat-icon ic-purple"><i class="fa-solid fa-gamepad"></i></div><div class="stat-body"><h3 id="s-match">0</h3><p>Matches Completed</p></div></div>
+    <div class="stat-card"><div class="stat-icon ic-amber"><i class="fa-solid fa-clock"></i></div><div class="stat-body"><h3 id="s-uptime" style="color:var(--accent-warn)">00:00:00</h3><p>Dashboard Uptime</p></div></div>
+</div>
+
+<div class="panel" id="batch-panel" style="margin-bottom:18px;display:none;">
+    <div class="panel-head">
+        <div class="panel-title"><i class="fa-solid fa-layer-group" style="color:var(--accent-primary)"></i> Bulk Queue</div>
+        <span class="panel-sub" id="batch-summary">--</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;padding:14px 18px;">
+        <div class="field" style="margin:0;">
+            <label>Accounts at once</label>
+            <input type="number" min="1" step="1" class="input" id="batch-concurrency" value="10" style="max-width:120px;">
         </div>
+        <div class="field" style="margin:0;">
+            <label>Skip if no match in (min, 0 = never)</label>
+            <input type="number" min="0" step="1" class="input" id="batch-timeout" value="5" style="max-width:120px;">
+        </div>
+        <button class="btn btn-secondary" onclick="saveBatchSettings()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 18px 14px;">
+        <span class="panel-sub">DOWNLOAD LIST</span>
+        <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=all" download><i class="fa-solid fa-download"></i> All</a>
+        <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=done" download><i class="fa-solid fa-flag-checkered"></i> Target reached</a>
+        <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=skipped" download><i class="fa-solid fa-forward"></i> Skipped</a>
+        <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=pending" download><i class="fa-solid fa-hourglass-half"></i> Pending</a>
+        <a class="btn btn-secondary" style="text-decoration:none" href="/api/accounts/export?state=active" download><i class="fa-solid fa-play"></i> Active</a>
+    </div>
+</div>
 
-        <div class="layout">
-            <div class="panel">
-                <div class="panel-head">
-                    <div class="panel-title"><i class="fa-solid fa-user-astronaut" style="color:var(--accent-primary)"></i> Live Accounts</div>
-                    <span class="panel-sub">EXP MONITOR</span>
-                </div>
-                <div class="acc-list" id="acc-list">
-                    <div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i><p>Loading accounts...</p></div>
-                </div>
-            </div>
-
-            <div class="panel log-wrap">
-                <div class="panel-head">
-                    <div class="panel-title"><i class="fa-solid fa-terminal" style="color:var(--accent-secondary)"></i> System Logs</div>
-                    <span class="panel-sub">REALTIME</span>
-                </div>
-                <div class="log-stream" id="log-stream"></div>
-            </div>
+<div class="layout">
+    <div class="panel">
+        <div class="panel-head">
+            <div class="panel-title"><i class="fa-solid fa-user-astronaut" style="color:var(--accent-primary)"></i> Live Accounts</div>
+            <span class="panel-sub">EXP MONITOR</span>
+        </div>
+        <div class="tabs" id="tabs"></div>
+        <div class="acc-list" id="acc-list">
+            <div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i><p>Loading accounts...</p></div>
         </div>
     </div>
 
-    <div class="modal-bg" id="add-modal">
-        <div class="modal">
-            <div class="modal-head">
-                <h3><i class="fa-solid fa-user-plus" style="color:var(--accent-primary); margin-right:8px;"></i> Add New Account</h3>
-                <button class="ib" onclick="closeAdd()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <form id="add-form" onsubmit="submitAdd(event)">
-                <div id="gf">
-                    <div class="field">
-                        <label>Guest UID</label>
-                        <input type="text" class="input" id="in-uid" placeholder="e.g. 7644913583">
-                    </div>
-                    <div class="field">
-                        <label>Guest Password</label>
-                        <input type="text" class="input" id="in-pass" placeholder="e.g. ZERO_GRAVITY_4NM38">
-                    </div>
-                    <div class="field">
-                        <label>Parallel match limit (0 = unlimited)</label>
-                        <input type="number" min="0" step="1" class="input" id="in-parallel" value="1" placeholder="1">
-                    </div>
-                    <div class="field">
-                        <label>Target level (0 = disabled; finish active matches)</label>
-                        <input type="number" min="0" step="1" class="input" id="in-target-level" value="8" placeholder="8">
-                    </div>
-                </div>
-                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
-                    <button type="button" class="btn btn-secondary" onclick="closeAdd()">Cancel</button>
-                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Save & Start</button>
-                </div>
-            </form>
+    <div class="panel log-wrap">
+        <div class="panel-head">
+            <div class="panel-title"><i class="fa-solid fa-terminal" style="color:var(--accent-secondary)"></i> System Logs</div>
+            <span class="panel-sub">REALTIME</span>
         </div>
+        <div class="log-stream" id="log-stream"></div>
     </div>
+</div>
+</div>
 
-    <div class="modal-bg" id="bulk-modal">
-        <div class="modal">
-            <div class="modal-head">
-                <h3><i class="fa-solid fa-list" style="color:var(--accent-primary); margin-right:8px;"></i> Bulk Add Accounts</h3>
-                <button class="ib" onclick="closeBulk()"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <form id="bulk-form" onsubmit="submitBulk(event)">
-                <div class="field">
-                    <label>Paste accounts (UID:PASSWORD per line, or a whole paragraph)</label>
-                    <textarea class="input" id="bulk-text" rows="8" placeholder="7644913583:ZERO_GRAVITY_4NM38&#10;1234567890:PASSWORD_2" style="resize:vertical;"></textarea>
-                </div>
-                <div class="field">
-                    <label>Accounts at once</label>
-                    <input type="number" min="1" step="1" class="input" id="bulk-concurrency" value="10">
-                </div>
-                <div class="field">
-                    <label>Target level (0 = disabled)</label>
-                    <input type="number" min="0" step="1" class="input" id="bulk-target-level" value="8">
-                </div>
-                <div class="field">
-                    <label>Parallel match limit per account (0 = unlimited)</label>
-                    <input type="number" min="0" step="1" class="input" id="bulk-parallel" value="1">
-                </div>
-                <div class="field">
-                    <label>Skip account if no match starts in (minutes, 0 = never)</label>
-                    <input type="number" min="0" step="1" class="input" id="bulk-timeout" value="5">
-                </div>
-                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:22px;">
-                    <button type="button" class="btn btn-secondary" onclick="closeBulk()">Cancel</button>
-                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Queue & Start</button>
-                </div>
-            </form>
+<div class="modal-bg" id="add-modal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3><i class="fa-solid fa-user-plus" style="color:var(--accent-primary);margin-right:8px;"></i> Add New Account</h3>
+            <button class="ib" onclick="closeAdd()"><i class="fa-solid fa-xmark"></i></button>
         </div>
+        <form id="add-form" onsubmit="submitAdd(event)">
+            <div id="gf">
+                <div class="field"><label>Guest UID</label><input type="text" class="input" id="in-uid" placeholder="e.g. 7644913583"></div>
+                <div class="field"><label>Guest Password</label><input type="text" class="input" id="in-pass" placeholder="e.g. ZERO_GRAVITY_4NM38"></div>
+                <div class="field"><label>Parallel match limit (0 = unlimited)</label><input type="number" min="0" step="1" class="input" id="in-parallel" value="1" placeholder="1"></div>
+                <div class="field"><label>Target level (0 = disabled; finish active matches)</label><input type="number" min="0" step="1" class="input" id="in-target-level" value="8" placeholder="8"></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:22px;">
+                <button type="button" class="btn btn-secondary" onclick="closeAdd()">Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Save & Start</button>
+            </div>
+        </form>
     </div>
+</div>
 
-    <script>
-        let bootTime = Date.now();
-        
+<div class="modal-bg" id="bulk-modal">
+    <div class="modal">
+        <div class="modal-head">
+            <h3><i class="fa-solid fa-list" style="color:var(--accent-primary);margin-right:8px;"></i> Bulk Add Accounts</h3>
+            <button class="ib" onclick="closeBulk()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form id="bulk-form" onsubmit="submitBulk(event)">
+            <div class="field"><label>Paste accounts (UID:PASSWORD per line, or a whole paragraph)</label>
+                <textarea class="input" id="bulk-text" rows="8" placeholder="7644913583:ZERO_GRAVITY_4NM38&#10;1234567890:PASSWORD_2" style="resize:vertical;"></textarea></div>
+            <div class="field"><label>Accounts at once</label><input type="number" min="1" step="1" class="input" id="bulk-concurrency" value="10"></div>
+            <div class="field"><label>Target level (0 = disabled)</label><input type="number" min="0" step="1" class="input" id="bulk-target-level" value="8"></div>
+            <div class="field"><label>Parallel match limit per account (0 = unlimited)</label><input type="number" min="0" step="1" class="input" id="bulk-parallel" value="1"></div>
+            <div class="field"><label>Skip account if no match starts in (minutes, 0 = never)</label><input type="number" min="0" step="1" class="input" id="bulk-timeout" value="5"></div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:22px;">
+                <button type="button" class="btn btn-secondary" onclick="closeBulk()">Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Queue & Start</button>
+            </div>
+        </form>
+    </div>
+</div>
 
-        function openAdd() { document.getElementById('add-modal').classList.add('on'); }
-        function closeAdd() { document.getElementById('add-modal').classList.remove('on'); }
-        async function submitAdd(e) {
-            e.preventDefault();
-            const uid = document.getElementById('in-uid').value.trim();
-            const password = document.getElementById('in-pass').value.trim();
-            if (!uid || !password) return alert('UID and Password required');
-            const max_parallel_matches = Math.max(0, parseInt(document.getElementById('in-parallel').value || '1', 10) || 0);
-            const target_level = Math.max(0, parseInt(document.getElementById('in-target-level').value || '8', 10) || 0);
-            const payload = { uid, password, max_parallel_matches, target_level };
-            try {
-                const r = await fetch('/api/account/add', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const d = await r.json();
-                if (d.status === 'ok') {
-                    closeAdd();
-                    document.getElementById('add-form').reset();
-                    fetchStats();
-                } else {
-                    alert('Error: ' + (d.error || 'Unknown'));
-                }
-            } catch (err) { alert('Request failed: ' + err); }
-        }
+<script>
+let bootTime = Date.now();
+let currentFilter = 'all';
+const FILTERS = [['all','All'],['active','Active'],['pending','Pending'],['done','Done'],['skipped','Skipped']];
 
-        function openBulk() { document.getElementById('bulk-modal').classList.add('on'); }
-        function closeBulk() { document.getElementById('bulk-modal').classList.remove('on'); }
-        async function submitBulk(e) {
-            e.preventDefault();
-            const text = document.getElementById('bulk-text').value;
-            if (!text.trim()) return alert('Paste at least one UID and password');
-            const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? def : Math.max(0, v); };
-            const payload = {
-                text,
-                concurrency: Math.max(1, Math.floor(num('bulk-concurrency', 10))),
-                target_level: Math.floor(num('bulk-target-level', 8)),
-                max_parallel_matches: Math.floor(num('bulk-parallel', 1)),
-                search_timeout_min: num('bulk-timeout', 5)
-            };
-            try {
-                const r = await fetch('/api/account/bulk-add', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-                const d = await r.json();
-                if (d.status === 'ok') {
-                    closeBulk();
-                    document.getElementById('bulk-form').reset();
-                    alert('Queued ' + d.added + ' account(s)' + (d.duplicates ? ' (' + d.duplicates + ' duplicate(s) skipped)' : ''));
-                    fetchStats();
-                } else { alert('Error: ' + (d.error || 'Unknown')); }
-            } catch (err) { alert('Request failed: ' + err); }
-        }
-        async function saveBatchSettings() {
-            const concurrency = Math.max(1, parseInt(document.getElementById('batch-concurrency').value || '10', 10) || 1);
-            const t = parseFloat(document.getElementById('batch-timeout').value);
-            const search_timeout_min = isNaN(t) ? 5 : Math.max(0, t);
-            try {
-                const r = await fetch('/api/batch/settings', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ concurrency, search_timeout_min }) });
-                const d = await r.json();
-                if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save'));
-                fetchStats();
-            } catch (err) { alert('Request failed: ' + err); }
-        }
+function openAdd() { document.getElementById('add-modal').classList.add('on'); }
+function closeAdd() { document.getElementById('add-modal').classList.remove('on'); }
+async function submitAdd(e) {
+    e.preventDefault();
+    const uid = document.getElementById('in-uid').value.trim();
+    const password = document.getElementById('in-pass').value.trim();
+    if (!uid || !password) return alert('UID and Password required');
+    const max_parallel_matches = Math.max(0, parseInt(document.getElementById('in-parallel').value || '1', 10) || 0);
+    const target_level = Math.max(0, parseInt(document.getElementById('in-target-level').value || '8', 10) || 0);
+    try {
+        const r = await fetch('/api/account/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid, password, max_parallel_matches, target_level }) });
+        const d = await r.json();
+        if (d.status === 'ok') { closeAdd(); document.getElementById('add-form').reset(); fetchStats(); }
+        else alert('Error: ' + (d.error || 'Unknown'));
+    } catch (err) { alert('Request failed: ' + err); }
+}
 
-        async function delAcc(uid) {
-            if (!confirm('Remove account ' + uid + '?')) return;
-            try {
-                await fetch('/api/account/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ uid })
-                });
-                fetchStats();
-            } catch (e) { console.error(e); }
-        }
-
-        async function saveParallelLimit(uid) {
-            const el = document.getElementById('limit-' + uid);
-            const max_parallel_matches = Math.max(0, parseInt(el?.value || '0', 10) || 0);
-            try {
-                const r = await fetch('/api/account/parallel-limit', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ uid, max_parallel_matches })
-                });
-                const d = await r.json();
-                if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save limit'));
-                fetchStats();
-            } catch (e) { alert('Request failed: ' + e); }
-        }
-
-        async function saveTargetLevel(uid) {
-            const el = document.getElementById('target-' + uid);
-            const target_level = Math.max(0, parseInt(el?.value || '0', 10) || 0);
-            try {
-                const r = await fetch('/api/account/target-level', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({uid, target_level}) });
-                const d = await r.json();
-                if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save target level'));
-                fetchStats();
-            } catch (e) { alert('Request failed: ' + e); }
-        }
-
-        async function refreshAcc(uid) {
-            try {
-                await fetch('/api/account/refresh', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ uid })
-                });
-                fetchStats();
-            } catch (e) { console.error(e); }
-        }
-
-        function esc(t) {
-            if (!t) return '';
-            return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-        }
-
-        function fmtUptime(sec) {
-            const h = String(Math.floor(sec / 3600)).padStart(2, '0');
-            const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-            const s = String(sec % 60).padStart(2, '0');
-            return `${h}:${m}:${s}`;
-        }
-
-        async function fetchStats() {
-            try {
-                const r = await fetch('/api/stats');
-                const d = await r.json();
-
-                document.getElementById('s-acc').innerText = d.total_accounts || 0;
-                document.getElementById('s-exp').innerText = '+' + (d.total_gained_exp || 0).toLocaleString();
-                document.getElementById('s-match').innerText = d.total_matches || 0;
-
-                const b = d.batch;
-                const bp = document.getElementById('batch-panel');
-                if (b && (b.pending + b.active + b.done + b.skipped) > 0) {
-                    bp.style.display = '';
-                    document.getElementById('batch-summary').innerText = `Pending ${b.pending} | Active ${b.active} | Done ${b.done} | Skipped ${b.skipped}`;
-                    const ci = document.getElementById('batch-concurrency'), ti = document.getElementById('batch-timeout');
-                    if (document.activeElement !== ci) ci.value = b.concurrency;
-                    if (document.activeElement !== ti) ti.value = b.search_timeout_min;
-                } else { bp.style.display = 'none'; }
-
-                const up = d.uptime || 0;
-                document.getElementById('s-uptime').innerText = fmtUptime(up);
-
-                const c = document.getElementById('acc-list');
-                if (!d.accounts || d.accounts.length === 0) {
-                    c.innerHTML = `<div class="empty"><i class="fa-solid fa-ghost"></i><p>No accounts loaded. Click "+ Add Account" to begin.</p></div>`;
-                } else {
-                    c.innerHTML = d.accounts.map(a => {
-                        const g = a.gained_exp || 0;
-                        const st = a.status || 'ONLINE';
-                        let cls = 'st-online';
-                        if (st === 'IN_MATCH') cls = 'st-match';
-                        else if (st.startsWith('SEARCHING')) cls = 'st-search';
-                        else if (st === 'ERROR' || st === 'SKIPPED') cls = 'st-error';
-                        else if (st === 'OFFLINE' || st === 'CONNECTING') cls = 'st-idle';
-
-                        let stTxt = st;
-                        if (st === 'IN_MATCH') stTxt = `IN MATCH (${a.active_matches || 0})`;
-                        const parallelLimit = (a.max_parallel_matches === undefined || a.max_parallel_matches === 0) ? 'Unlimited' : a.max_parallel_matches;
-                        const targetLevel = a.target_level || 0;
-
-                        return `
-                        <div class="acc-card">
-                            <div class="acc-top">
-                                <div class="acc-id">
-                                    <div class="acc-avatar">${(a.nickname || 'P').charAt(0).toUpperCase()}</div>
-                                    <div class="acc-meta">
-                                        <h4>${esc(a.nickname)} <span class="region-tag">${esc(a.region || 'BD')}</span></h4>
-                                        <span>UID: ${esc(a.uid)}</span>
-                                    </div>
-                                </div>
-                                <div class="acc-status ${cls}">${esc(stTxt)}</div>
-                            </div>
-                            <div class="exp-row">
-                                <div class="exp-cell"><span class="exp-lbl">Initial</span><span class="exp-val">${(a.initial_exp || 0).toLocaleString()}</span></div>
-                                <div class="exp-cell"><span class="exp-lbl">Current</span><span class="exp-val">${(a.current_exp || 0).toLocaleString()}</span></div>
-                                <div class="exp-cell"><span class="exp-lbl">Gained</span><span class="gain-chip">+${g.toLocaleString()}</span></div>
-                            </div>
-                            <div class="prog-wrap">
-                                <div class="prog-lbl"><span style="color:var(--accent-primary)">LV ${a.level || 1}</span><span style="color:var(--text-faint)">Matches: ${a.matches_played || 0}</span></div>
-                                <div class="prog-lbl"><span style="color:var(--text-faint)">Parallel limit: ${parallelLimit}</span><span style="color:var(--text-faint)">Active: ${a.active_matches || 0}</span></div>
-                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">
-                                    <input type="number" min="0" step="1" class="input" id="limit-${esc(a.uid)}" value="${a.max_parallel_matches || 0}" aria-label="Parallel match limit for ${esc(a.uid)}" style="min-width:0;max-width:140px;padding:7px">
-                                    <button class="ib" title="Save parallel limit (0 = unlimited)" onclick="saveParallelLimit('${a.uid}')"><i class="fa-solid fa-sliders"></i></button>
-                                </div>
-                                <div class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">
-                                    <label style="min-width:90px">Target level</label>
-                                    <input type="number" min="0" step="1" class="input" id="target-${esc(a.uid)}" value="${targetLevel}" aria-label="Target level for ${esc(a.uid)}" style="min-width:0;max-width:140px;padding:7px">
-                                    <button class="ib" title="Save target level (0 = disabled)" onclick="saveTargetLevel('${a.uid}')"><i class="fa-solid fa-flag-checkered"></i></button>
-                                </div>
-                                <div class="prog-bg"><div class="prog-fill" style="width:${Math.min(100, Math.max(8, ((a.current_exp || 0) % 1000) / 10))}%"></div></div>
-                            </div>
-                            <div class="acc-foot">
-                                <span>Last: ${a.last_match_time || 'running...'}</span>
-                                <div class="foot-actions">
-                                    <button class="ib" title="Refresh" onclick="refreshAcc('${a.uid}')"><i class="fa-solid fa-rotate"></i></button>
-                                    <button class="ib danger" title="Delete" onclick="delAcc('${a.uid}')"><i class="fa-solid fa-trash"></i></button>
-                                </div>
-                            </div>
-                        </div>`;
-                    }).join('');
-                }
-
-                const lc = document.getElementById('log-stream');
-                if (d.logs && d.logs.length) {
-                    lc.innerHTML = d.logs.map(l =>
-                        `<div class="log-item"><span class="log-t">[${l.time}]</span><span class="log-${l.level}">${esc(l.message)}</span></div>`
-                    ).join('');
-                    lc.scrollTop = lc.scrollHeight;
-                }
-            } catch (e) { console.error('fetchStats error:', e); }
-        }
-
-        setInterval(() => {
-            const s = Math.floor((Date.now() - bootTime) / 1000);
-        }, 1000);
-
+function openBulk() { document.getElementById('bulk-modal').classList.add('on'); }
+function closeBulk() { document.getElementById('bulk-modal').classList.remove('on'); }
+async function submitBulk(e) {
+    e.preventDefault();
+    const text = document.getElementById('bulk-text').value;
+    if (!text.trim()) return alert('Paste at least one UID and password');
+    const num = (id, def) => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? def : Math.max(0, v); };
+    const payload = {
+        text,
+        concurrency: Math.max(1, Math.floor(num('bulk-concurrency', 10))),
+        target_level: Math.floor(num('bulk-target-level', 8)),
+        max_parallel_matches: Math.floor(num('bulk-parallel', 1)),
+        search_timeout_min: num('bulk-timeout', 5)
+    };
+    try {
+        const r = await fetch('/api/account/bulk-add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const d = await r.json();
+        if (d.status === 'ok') {
+            closeBulk(); document.getElementById('bulk-form').reset();
+            alert('Queued ' + d.added + ' account(s)' + (d.duplicates ? ' (' + d.duplicates + ' duplicate(s) skipped)' : ''));
+            fetchStats();
+        } else alert('Error: ' + (d.error || 'Unknown'));
+    } catch (err) { alert('Request failed: ' + err); }
+}
+async function saveBatchSettings() {
+    const concurrency = Math.max(1, parseInt(document.getElementById('batch-concurrency').value || '10', 10) || 1);
+    const t = parseFloat(document.getElementById('batch-timeout').value);
+    const search_timeout_min = isNaN(t) ? 5 : Math.max(0, t);
+    try {
+        const r = await fetch('/api/batch/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ concurrency, search_timeout_min }) });
+        const d = await r.json();
+        if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save'));
         fetchStats();
-        setInterval(fetchStats, 3000);
-    </script>
+    } catch (err) { alert('Request failed: ' + err); }
+}
+
+async function delAcc(uid) {
+    if (!confirm('Remove account ' + uid + '?')) return;
+    try {
+        await fetch('/api/account/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid }) });
+        fetchStats();
+    } catch (e) { console.error(e); }
+}
+
+async function removeAll(state) {
+    const label = state === 'all' ? 'ALL' : state.toUpperCase();
+    if (!confirm(`Remove all ${label} accounts? This deletes their UID/password and cannot be undone.`)) return;
+    try {
+        const r = await fetch('/api/accounts/remove-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
+        const d = await r.json();
+        if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to remove'));
+    } catch (e) { alert('Request failed: ' + e); }
+    fetchStats();
+}
+
+async function saveParallelLimit(uid) {
+    const el = document.getElementById('limit-' + uid);
+    const max_parallel_matches = Math.max(0, parseInt(el?.value || '0', 10) || 0);
+    try {
+        const r = await fetch('/api/account/parallel-limit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid, max_parallel_matches }) });
+        const d = await r.json();
+        if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save limit'));
+        fetchStats();
+    } catch (e) { alert('Request failed: ' + e); }
+}
+
+async function saveTargetLevel(uid) {
+    const el = document.getElementById('target-' + uid);
+    const target_level = Math.max(0, parseInt(el?.value || '0', 10) || 0);
+    try {
+        const r = await fetch('/api/account/target-level', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid, target_level }) });
+        const d = await r.json();
+        if (d.status !== 'ok') alert('Error: ' + (d.error || 'Unable to save target level'));
+        fetchStats();
+    } catch (e) { alert('Request failed: ' + e); }
+}
+
+async function refreshAcc(uid) {
+    try {
+        await fetch('/api/account/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid }) });
+        fetchStats();
+    } catch (e) { console.error(e); }
+}
+
+function esc(t) {
+    if (!t) return '';
+    return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function fmtUptime(sec) {
+    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+}
+
+function accState(a) {
+    return ['done', 'skipped', 'pending', 'active'].includes(a.state) ? a.state : 'active';
+}
+function setFilter(f) { currentFilter = f; fetchStats(); }
+
+function renderTabs(accounts) {
+    const counts = { all: accounts.length, active: 0, pending: 0, done: 0, skipped: 0 };
+    accounts.forEach(a => counts[accState(a)]++);
+    const label = FILTERS.find(f => f[0] === currentFilter)[1];
+    document.getElementById('tabs').innerHTML =
+        FILTERS.map(([k, l]) =>
+            `<button class="tab ${k === currentFilter ? 'active' : ''}" onclick="setFilter('${k}')">${l}<span class="n">${counts[k]}</span></button>`
+        ).join('') +
+        `<span class="tab-spacer"></span>
+         <button class="btn btn-danger btn-sm" onclick="removeAll('${currentFilter}')"><i class="fa-solid fa-trash"></i> Remove ${label}</button>`;
+}
+
+async function fetchStats() {
+    try {
+        const r = await fetch('/api/stats');
+        const d = await r.json();
+
+        document.getElementById('s-acc').innerText = d.total_accounts || 0;
+        document.getElementById('s-exp').innerText = '+' + (d.total_gained_exp || 0).toLocaleString();
+        document.getElementById('s-match').innerText = d.total_matches || 0;
+
+        const b = d.batch;
+        const bp = document.getElementById('batch-panel');
+        if (b && (b.pending + b.active + b.done + b.skipped) > 0) {
+            bp.style.display = '';
+            document.getElementById('batch-summary').innerText = `Pending ${b.pending} | Active ${b.active} | Done ${b.done} | Skipped ${b.skipped}`;
+            const ci = document.getElementById('batch-concurrency'), ti = document.getElementById('batch-timeout');
+            if (document.activeElement !== ci) ci.value = b.concurrency;
+            if (document.activeElement !== ti) ti.value = b.search_timeout_min;
+        } else { bp.style.display = 'none'; }
+
+        document.getElementById('s-uptime').innerText = fmtUptime(d.uptime || 0);
+
+        const c = document.getElementById('acc-list');
+        const all = d.accounts || [];
+        renderTabs(all);
+        const shown = currentFilter === 'all' ? all : all.filter(a => accState(a) === currentFilter);
+
+        if (shown.length === 0) {
+            c.innerHTML = `<div class="empty"><i class="fa-solid fa-ghost"></i><p>${all.length ? 'No accounts in this section.' : 'No accounts loaded. Click "+ Add Account" to begin.'}</p></div>`;
+        } else {
+            c.innerHTML = shown.map(a => {
+                const g = a.gained_exp || 0;
+                const st = a.status || 'ONLINE';
+                let cls = 'st-online';
+                if (st === 'IN_MATCH') cls = 'st-match';
+                else if (st.startsWith('SEARCHING')) cls = 'st-search';
+                else if (st === 'ERROR' || st === 'SKIPPED') cls = 'st-error';
+                else if (['OFFLINE', 'CONNECTING', 'PENDING', 'DONE'].includes(st)) cls = 'st-idle';
+
+                let stTxt = st;
+                if (st === 'IN_MATCH') stTxt = `IN MATCH (${a.active_matches || 0})`;
+                const parallelLimit = (a.max_parallel_matches === undefined || a.max_parallel_matches === 0) ? 'Unlimited' : a.max_parallel_matches;
+                const targetLevel = a.target_level || 0;
+
+                return `
+                <div class="acc-card">
+                    <div class="acc-top">
+                        <div class="acc-id">
+                            <div class="acc-avatar">${(a.nickname || 'P').charAt(0).toUpperCase()}</div>
+                            <div class="acc-meta">
+                                <h4>${esc(a.nickname)} <span class="region-tag">${esc(a.region || 'BD')}</span></h4>
+                                <span>UID: ${esc(a.uid)}</span>
+                            </div>
+                        </div>
+                        <div class="acc-status ${cls}">${esc(stTxt)}</div>
+                    </div>
+                    <div class="exp-row">
+                        <div class="exp-cell"><span class="exp-lbl">Initial</span><span class="exp-val">${(a.initial_exp || 0).toLocaleString()}</span></div>
+                        <div class="exp-cell"><span class="exp-lbl">Current</span><span class="exp-val">${(a.current_exp || 0).toLocaleString()}</span></div>
+                        <div class="exp-cell"><span class="exp-lbl">Gained</span><span class="gain-chip">+${g.toLocaleString()}</span></div>
+                    </div>
+                    <div class="prog-wrap">
+                        <div class="prog-lbl"><span style="color:var(--accent-primary)">LV ${a.level || 1}</span><span style="color:var(--text-faint)">Matches: ${a.matches_played || 0}</span></div>
+                        <div class="prog-lbl"><span style="color:var(--text-faint)">Parallel limit: ${parallelLimit}</span><span style="color:var(--text-faint)">Active: ${a.active_matches || 0}</span></div>
+                        <div class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                            <input type="number" min="0" step="1" class="input" id="limit-${esc(a.uid)}" value="${a.max_parallel_matches || 0}" aria-label="Parallel match limit for ${esc(a.uid)}" style="min-width:0;max-width:140px;padding:7px">
+                            <button class="ib" title="Save parallel limit (0 = unlimited)" onclick="saveParallelLimit('${esc(a.uid)}')"><i class="fa-solid fa-sliders"></i></button>
+                        </div>
+                        <div class="field" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                            <label style="min-width:90px">Target level</label>
+                            <input type="number" min="0" step="1" class="input" id="target-${esc(a.uid)}" value="${targetLevel}" aria-label="Target level for ${esc(a.uid)}" style="min-width:0;max-width:140px;padding:7px">
+                            <button class="ib" title="Save target level (0 = disabled)" onclick="saveTargetLevel('${esc(a.uid)}')"><i class="fa-solid fa-flag-checkered"></i></button>
+                        </div>
+                        <div class="prog-bg"><div class="prog-fill" style="width:${Math.min(100, Math.max(8, ((a.current_exp || 0) % 1000) / 10))}%"></div></div>
+                    </div>
+                    <div class="acc-foot">
+                        <span>Last: ${a.last_match_time || 'running...'}</span>
+                        <div class="foot-actions">
+                            <button class="ib" title="Refresh" onclick="refreshAcc('${esc(a.uid)}')"><i class="fa-solid fa-rotate"></i></button>
+                            <button class="ib danger" title="Delete" onclick="delAcc('${esc(a.uid)}')"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        const lc = document.getElementById('log-stream');
+        if (d.logs && d.logs.length) {
+            lc.innerHTML = d.logs.map(l =>
+                `<div class="log-item"><span class="log-t">[${l.time}]</span><span class="log-${l.level}">${esc(l.message)}</span></div>`
+            ).join('');
+            lc.scrollTop = lc.scrollHeight;
+        }
+    } catch (e) { console.error('fetchStats error:', e); }
+}
+
+fetchStats();
+setInterval(fetchStats, 3000);
+</script>
 </body>
-</html>
+    </html>
